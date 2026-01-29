@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "CekHargaToko",
-    "slug": "CekHargaToko",
+    "name": "SiCek Bangunan",
+    "slug": "cekhargatoko",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -12,11 +12,10 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.bayurizkya.cekhargatoko",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -38,11 +37,18 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cc8b01ba-2a11-4cdd-ba67-d6e8e787a46c"
+      }
     }
   }
 }
