@@ -21,7 +21,7 @@ import * as FileSystem from "expo-file-system/legacy";
 // ----------------------
 
 import { StatusBar } from "expo-status-bar";
-import { closeDatabase, getDatabase, resetDatabase } from "../../helpers/database";
+import { openDB } from "../../helpers/database";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -30,7 +30,6 @@ export default function App() {
   const [filterData, setFilterData] = useState([]);
   const [search, setSearch] = useState("");
   const [dbName, setDbName] = useState("Memuat data...");
-  const [db, setDb] = useState(null);
 
   // State untuk modal foto
   const [modalVisible, setModalVisible] = useState(false);
@@ -43,11 +42,11 @@ export default function App() {
   }, []);
 
   const cekDatabaseTersimpan = async () => {
+    let database = null;
     try {
-      const database = await getDatabase();
+      database = await openDB();
 
       if (database) {
-        setDb(database);
         setDbName("Data Siap (Tersimpan)");
         await loadData(database);
       } else {
@@ -56,11 +55,16 @@ export default function App() {
     } catch (e) {
       console.log("Gagal auto-load:", e);
       setDbName("Silakan Import Database");
+    } finally {
+      if (database) {
+        try { await database.closeAsync(); } catch (e) {}
+      }
     }
   };
 
   // --- FUNGSI IMPORT (DIPERBAIKI) ---
   const pickDocument = async () => {
+    let database = null;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
@@ -86,11 +90,6 @@ export default function App() {
 
       const targetPath = `${sqliteFolder}/toko_mobile.db`;
 
-      // --- TUTUP KONEKSI LAMA DULU ---
-      await closeDatabase();
-      setDb(null);
-      // --------------------------------
-
       // Hapus database lama
       const fileInfo = await FileSystem.getInfoAsync(targetPath);
       if (fileInfo.exists) {
@@ -103,18 +102,20 @@ export default function App() {
         to: targetPath,
       });
 
-      // Buka koneksi BARU melalui helper
-      const database = await resetDatabase();
-      setDb(database);
-      setDbName(`Terupdate: ${file.name}`);
-
-      // Load data baru
-      await loadData(database);
-
-      Alert.alert("Sukses", "Data berhasil diperbarui dan langsung muncul!");
+      // Buka koneksi BARU
+      database = await openDB();
+      if (database) {
+        setDbName(`Terupdate: ${file.name}`);
+        await loadData(database);
+        Alert.alert("Sukses", "Data berhasil diperbarui dan langsung muncul!");
+      }
     } catch (err) {
       console.log(err);
       Alert.alert("Gagal", "Error: " + err.message);
+    } finally {
+      if (database) {
+        try { await database.closeAsync(); } catch (e) {}
+      }
     }
   };
 
@@ -235,7 +236,7 @@ export default function App() {
         ListEmptyComponent={
           <View style={{ marginTop: 50, alignItems: "center" }}>
             <Text style={{ color: "#888" }}>
-              {db
+              {dataProduk.length > 0
                 ? "Barang tidak ditemukan"
                 : "Data belum ada. Silakan Import."}
             </Text>

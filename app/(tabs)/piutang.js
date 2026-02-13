@@ -17,7 +17,7 @@ import {
 
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { getDatabase } from "../../helpers/database";
+import { openDB } from "../../helpers/database";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -44,12 +44,13 @@ export default function PiutangScreen() {
     }, [])
   );
 
-  // Fungsi utama: ambil DB dari helper lalu query
+  // Fungsi utama: buka DB baru, query, lalu tutup
   const loadAll = async (tab) => {
+    let database = null;
     try {
       setLoading(true);
 
-      const database = await getDatabase();
+      database = await openDB();
 
       if (!database) {
         setLoading(false);
@@ -106,6 +107,10 @@ export default function PiutangScreen() {
       setLoading(false);
       setDataPiutang([]);
       setFilterData([]);
+    } finally {
+      if (database) {
+        try { await database.closeAsync(); } catch (e) {}
+      }
     }
   };
 

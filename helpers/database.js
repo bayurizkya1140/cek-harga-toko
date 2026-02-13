@@ -3,59 +3,37 @@ import * as SQLite from "expo-sqlite";
 
 const DB_NAME = "toko_mobile.db";
 
-let _db = null;
-
 /**
- * Mendapatkan koneksi database yang sudah terbuka.
- * Jika belum ada, akan membuka koneksi baru.
- * Mengembalikan null jika file database belum ada.
+ * Cek apakah file database sudah ada.
  */
-export async function getDatabase() {
+export async function isDatabaseExists() {
   try {
-    if (!FileSystem.documentDirectory) return null;
-
+    if (!FileSystem.documentDirectory) return false;
     const sqliteFolder = `${FileSystem.documentDirectory}SQLite`;
     const targetPath = `${sqliteFolder}/${DB_NAME}`;
-
     const fileInfo = await FileSystem.getInfoAsync(targetPath);
-    if (!fileInfo.exists) {
-      return null;
-    }
-
-    // Jika sudah ada koneksi, gunakan yang ada
-    if (_db) {
-      return _db;
-    }
-
-    // Buka koneksi baru
-    _db = await SQLite.openDatabaseAsync(DB_NAME);
-    return _db;
+    return fileInfo.exists;
   } catch (e) {
-    console.log("Error getDatabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Membuka koneksi database baru setiap kali dipanggil.
+ * Menggunakan useNewConnection: true untuk menghindari NullPointerException di Android.
+ * Caller HARUS memanggil closeAsync() setelah selesai menggunakan database.
+ */
+export async function openDB() {
+  try {
+    const exists = await isDatabaseExists();
+    if (!exists) return null;
+
+    const db = await SQLite.openDatabaseAsync(DB_NAME, {
+      useNewConnection: true,
+    });
+    return db;
+  } catch (e) {
+    console.log("Error openDB:", e);
     return null;
   }
-}
-
-/**
- * Menutup koneksi database dan reset.
- * Dipanggil saat import database baru.
- */
-export async function closeDatabase() {
-  if (_db) {
-    try {
-      await _db.closeAsync();
-    } catch (e) {
-      console.log("Error closeDatabase:", e);
-    }
-    _db = null;
-  }
-}
-
-/**
- * Reset koneksi (tutup lalu buka ulang).
- * Dipanggil setelah import database baru.
- */
-export async function resetDatabase() {
-  await closeDatabase();
-  return await getDatabase();
 }
