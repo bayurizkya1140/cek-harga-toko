@@ -18,10 +18,10 @@ import {
 // --- IMPORT LIBRARY ---
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import * as SQLite from "expo-sqlite";
 // ----------------------
 
 import { StatusBar } from "expo-status-bar";
+import { closeDatabase, getDatabase, resetDatabase } from "../../helpers/database";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -44,17 +44,9 @@ export default function App() {
 
   const cekDatabaseTersimpan = async () => {
     try {
-      if (!FileSystem.documentDirectory) return;
+      const database = await getDatabase();
 
-      const internalDbName = "toko_mobile.db";
-      const sqliteFolder = `${FileSystem.documentDirectory}SQLite`;
-      const targetPath = `${sqliteFolder}/${internalDbName}`;
-
-      const fileInfo = await FileSystem.getInfoAsync(targetPath);
-
-      if (fileInfo.exists) {
-        // Buka database
-        const database = await SQLite.openDatabaseAsync(internalDbName);
+      if (database) {
         setDb(database);
         setDbName("Data Siap (Tersimpan)");
         await loadData(database);
@@ -78,7 +70,6 @@ export default function App() {
       if (result.canceled) return;
 
       const file = result.assets[0];
-      const internalDbName = "toko_mobile.db";
 
       if (!FileSystem.documentDirectory) {
         Alert.alert("Error", "Gagal membaca sistem file HP.");
@@ -93,18 +84,12 @@ export default function App() {
         });
       }
 
-      const targetPath = `${sqliteFolder}/${internalDbName}`;
+      const targetPath = `${sqliteFolder}/toko_mobile.db`;
 
-      // --- PERBAIKAN UTAMA: TUTUP KONEKSI LAMA DULU ---
-      if (db) {
-        try {
-          await db.closeAsync(); // Tutup koneksi agar file dilepas
-          setDb(null); // Kosongkan state
-        } catch (e) {
-          console.log("Gagal menutup db lama:", e);
-        }
-      }
-      // ------------------------------------------------
+      // --- TUTUP KONEKSI LAMA DULU ---
+      await closeDatabase();
+      setDb(null);
+      // --------------------------------
 
       // Hapus database lama
       const fileInfo = await FileSystem.getInfoAsync(targetPath);
@@ -118,8 +103,8 @@ export default function App() {
         to: targetPath,
       });
 
-      // Buka koneksi BARU
-      const database = await SQLite.openDatabaseAsync(internalDbName);
+      // Buka koneksi BARU melalui helper
+      const database = await resetDatabase();
       setDb(database);
       setDbName(`Terupdate: ${file.name}`);
 
@@ -246,7 +231,7 @@ export default function App() {
         data={filterData}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 50 }}
+        contentContainerStyle={{ paddingBottom: 30, paddingHorizontal: 15 }}
         ListEmptyComponent={
           <View style={{ marginTop: 50, alignItems: "center" }}>
             <Text style={{ color: "#888" }}>
@@ -314,52 +299,63 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f6fa" },
   header: {
     backgroundColor: "#2c3e50",
-    padding: 20,
-    paddingTop: Platform.OS === "android" ? 40 : 20,
+    padding: 10,
+    paddingTop: Platform.OS === "android" ? 30 : 10,
     alignItems: "center",
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
   },
-  title: { color: "white", fontSize: 24, fontWeight: "bold" },
-  subtitle: { color: "#bdc3c7", fontSize: 12, marginBottom: 15, marginTop: 5 },
+  title: { color: "white", fontSize: 18, fontWeight: "bold" },
+  subtitle: { color: "#bdc3c7", fontSize: 11, marginBottom: 5, marginTop: 2 },
   btnImport: {
     backgroundColor: "#27ae60",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    elevation: 3,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    elevation: 2,
   },
-  btnText: { color: "white", fontWeight: "bold" },
+  btnText: { color: "white", fontWeight: "bold", fontSize: 12 },
 
-  searchContainer: { padding: 15 },
+  searchContainer: {
+    paddingHorizontal: 15,
+    paddingTop: 10,
+    paddingBottom: 5,
+  },
   searchInput: {
-    height: 50,
+    height: 44,
     backgroundColor: "white",
     borderRadius: 10,
     paddingHorizontal: 15,
-    fontSize: 16,
+    fontSize: 14,
     elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
   },
 
   card: {
     backgroundColor: "white",
-    marginHorizontal: 15,
     marginBottom: 10,
-    padding: 15,
+    padding: 14,
     borderRadius: 12,
     elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
   },
   headerCard: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f1f1",
+    borderBottomColor: "#f0f0f0",
     paddingBottom: 8,
   },
-  namaBarang: { fontSize: 18, fontWeight: "bold", color: "#333", flex: 1 },
+  namaBarang: { fontSize: 15, fontWeight: "bold", color: "#2c3e50", flex: 1 },
   lokasi: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#d35400",
     fontWeight: "bold",
     backgroundColor: "#ffe0b2",
@@ -375,9 +371,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 5,
   },
-  label: { color: "#7f8c8d" },
-  harga: { color: "#27ae60", fontWeight: "bold", fontSize: 18 },
-  stok: { color: "#333", fontWeight: "bold", fontSize: 14 },
+  label: { color: "#95a5a6", fontSize: 12 },
+  harga: { color: "#27ae60", fontWeight: "bold", fontSize: 16 },
+  stok: { color: "#2c3e50", fontWeight: "bold", fontSize: 13 },
 
   // Style untuk tombol foto
   btnFoto: {
