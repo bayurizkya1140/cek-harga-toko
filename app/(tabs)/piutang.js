@@ -1,18 +1,18 @@
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Modal,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Modal,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 import { useFocusEffect } from "@react-navigation/native";
@@ -79,15 +79,15 @@ export default function PiutangScreen() {
         return;
       }
 
-      // Query berdasarkan tab
+      // Query berdasarkan tab (filter out soft-deleted records)
       let result;
       if (tab === "belum_lunas") {
         result = await database.getAllAsync(
-          "SELECT * FROM piutang WHERE LOWER(TRIM(status)) = 'belum lunas' ORDER BY tanggal DESC"
+          "SELECT * FROM piutang WHERE LOWER(TRIM(status)) = 'belum lunas' AND (sync_status IS NULL OR sync_status != 'deleted') ORDER BY tanggal DESC"
         );
       } else {
         result = await database.getAllAsync(
-          "SELECT * FROM piutang WHERE LOWER(TRIM(status)) IN ('lunas', 'sudah lunas') ORDER BY tanggal DESC"
+          "SELECT * FROM piutang WHERE LOWER(TRIM(status)) IN ('lunas', 'sudah lunas') AND (sync_status IS NULL OR sync_status != 'deleted') ORDER BY tanggal DESC"
         );
       }
 
