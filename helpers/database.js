@@ -1,5 +1,13 @@
 import * as SQLite from "expo-sqlite";
-import { v4 as uuidv4 } from "uuid";
+
+// UUID v4 generator tanpa crypto (kompatibel dengan Hermes/React Native)
+function uuidv4() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 const DB_NAME = "toko_mobile.db";
 

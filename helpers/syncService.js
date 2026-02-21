@@ -1,5 +1,4 @@
 import * as FileSystem from "expo-file-system/legacy";
-import { v4 as uuidv4 } from "uuid";
 import {
   clearTable,
   getLokalRawData,
@@ -10,7 +9,16 @@ import {
   updateUUIDLokal,
   upsertLokalFromCloud,
 } from "./database";
-import supabase from "./supabaseClient";
+import supabase, { supabaseKey, supabaseUrl } from "./supabaseClient";
+
+// UUID v4 generator tanpa crypto (kompatibel dengan Hermes/React Native)
+function uuidv4() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 // =============================================
 // KOLOM YANG VALID DI SUPABASE (whitelist)
@@ -45,40 +53,59 @@ function buildCloudPayload(tableName, row) {
 
 /**
  * Upload foto base64 ke Supabase Storage, return public URL.
+ * Menggunakan FileSystem.uploadAsync (native Expo) untuk reliability di React Native.
  */
 async function uploadFoto(uuid, base64String) {
   if (!base64String || !base64String.startsWith("data:image")) return null;
 
+  const tempPath = `${FileSystem.cacheDirectory}upload_${uuid}_${Date.now()}.jpg`;
+
   try {
-    // Ekstrak base64 data (hapus prefix data:image/xxx;base64,)
+    // 1. Ekstrak base64 murni (hapus prefix data:image/xxx;base64,)
     const base64Data = base64String.replace(/^data:image\/\w+;base64,/, "");
-    
-    // Decode base64 ke Uint8Array untuk React Native
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+
+    // 2. Tulis base64 ke file temp
+    await FileSystem.writeAsStringAsync(tempPath, base64Data, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
 
     const fileName = `${uuid}.jpg`;
 
-    const { data, error } = await supabase.storage
-      .from("product-photos")
-      .upload(fileName, bytes.buffer, {
-        contentType: "image/jpeg",
-        upsert: true,
-      });
+    // 3. Upload file via Expo FileSystem.uploadAsync (cara paling reliable di RN)
+    //    Langsung ke Supabase Storage REST API
+    const uploadUrl = `${supabaseUrl}/storage/v1/object/product-photos/${fileName}`;
 
-    if (error) throw error;
+    const uploadResult = await FileSystem.uploadAsync(uploadUrl, tempPath, {
+      httpMethod: "POST",
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseKey,
+        "Content-Type": "image/jpeg",
+        "x-upsert": "true",
+      },
+    });
 
+    if (uploadResult.status !== 200) {
+      throw new Error(`Upload status: ${uploadResult.status} - ${uploadResult.body}`);
+    }
+
+    // 4. Dapatkan public URL
     const {
       data: { publicUrl },
     } = supabase.storage.from("product-photos").getPublicUrl(fileName);
 
-    return `${publicUrl}?t=${Date.now()}`;
+    const finalUrl = `${publicUrl}?t=${Date.now()}`;
+    console.log(`[FOTO] Upload berhasil: ${finalUrl}`);
+    return finalUrl;
   } catch (err) {
-    console.error("Gagal upload foto:", err.message);
+    console.error("[FOTO] Gagal upload foto:", err.message);
     return null;
+  } finally {
+    // Hapus file temp
+    try {
+      await FileSystem.deleteAsync(tempPath, { idempotent: true });
+    } catch (e) {}
   }
 }
 
@@ -158,12 +185,15 @@ async function pushSyncTable(db, tableName) {
         statusLokal === "pending_update"
       ) {
         // Build payload yang bersih (hanya kolom Supabase)
+        // PENTING: updated_at diset ke waktu SYNC (bukan waktu edit lokal)
+        // agar desktop selalu mendeteksi data cloud sebagai lebih baru
+        const syncTimestamp = new Date().toISOString();
         let payload = buildCloudPayload(tableName, {
           ...row,
           uuid: uuid,
           id_lokal: id_lokal,
           is_deleted: false,
-          updated_at: row.updated_at || new Date().toISOString(),
+          updated_at: syncTimestamp,
         });
 
         // --- KHUSUS PRODUK: TANGANI FOTO ---

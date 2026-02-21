@@ -238,6 +238,17 @@ export default function App() {
   };
 
   // --- PILIH FOTO ---
+  // Konfigurasi sama dengan desktop: max 800px, quality 85%, tanpa crop kotak
+  const IMAGE_PICKER_OPTIONS = {
+    mediaTypes: ['images'],
+    quality: 0.85,        // Sama dengan desktop (canvas.toDataURL quality: 0.85)
+    base64: true,
+    allowsEditing: true,  // Bisa crop manual tapi tidak dipaksa kotak
+    maxWidth: 800,        // Max width 800px
+    maxHeight: 800,       // Max height 800px
+    // Tidak pakai aspect ratio agar proporsional seperti desktop
+  };
+
   const pickImage = async (source) => {
     try {
       let result;
@@ -247,26 +258,14 @@ export default function App() {
           Alert.alert("Izin Ditolak", "Izin kamera diperlukan untuk mengambil foto.");
           return;
         }
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
-          quality: 0.6,
-          base64: true,
-          allowsEditing: true,
-          aspect: [1, 1],
-        });
+        result = await ImagePicker.launchCameraAsync(IMAGE_PICKER_OPTIONS);
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== "granted") {
           Alert.alert("Izin Ditolak", "Izin galeri diperlukan untuk memilih foto.");
           return;
         }
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          quality: 0.6,
-          base64: true,
-          allowsEditing: true,
-          aspect: [1, 1],
-        });
+        result = await ImagePicker.launchImageLibraryAsync(IMAGE_PICKER_OPTIONS);
       }
 
       if (!result.canceled && result.assets && result.assets[0]) {
@@ -318,7 +317,9 @@ export default function App() {
         satuan: formData.satuan || "pcs",
         harga: parseHarga(formData.harga),
         lokasi: formData.lokasi.trim(),
-        foto: formData.foto,
+        // Saat edit: pertahankan foto lama (tidak bisa diubah dari mobile)
+        // Saat tambah: gunakan foto dari form
+        foto: editingProduct ? editingProduct.foto : formData.foto,
       };
 
       if (editingProduct) {
@@ -705,27 +706,40 @@ export default function App() {
                   placeholder="Rak A / Gudang Belakang"
                 />
 
-                {/* Foto */}
-                <Text style={styles.formLabel}>Foto Produk</Text>
-                <TouchableOpacity
-                  style={styles.fotoPicker}
-                  onPress={showImagePickerOptions}
-                >
-                  {formData.foto ? (
-                    <Image
-                      source={{ uri: formData.foto }}
-                      style={styles.fotoPreview}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.fotoPlaceholder}>
-                      <Text style={{ fontSize: 32 }}>📷</Text>
-                      <Text style={{ color: "#95a5a6", marginTop: 5, fontSize: 12 }}>
-                        Ketuk untuk pilih foto
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+                {/* Foto — hanya tampil saat TAMBAH produk baru */}
+                {!editingProduct && (
+                  <>
+                    <Text style={styles.formLabel}>Foto Produk</Text>
+                    <TouchableOpacity
+                      style={styles.fotoPicker}
+                      onPress={showImagePickerOptions}
+                    >
+                      {formData.foto ? (
+                        <Image
+                          source={{ uri: formData.foto }}
+                          style={styles.fotoPreview}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.fotoPlaceholder}>
+                          <Text style={{ fontSize: 32 }}>📷</Text>
+                          <Text style={{ color: "#95a5a6", marginTop: 5, fontSize: 12 }}>
+                            Ketuk untuk pilih foto
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* Info: foto tidak bisa diedit di mobile */}
+                {editingProduct && editingProduct.foto && (
+                  <View style={{ marginTop: 12, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8 }}>
+                    <Text style={{ fontSize: 12, color: '#7f8c8d', textAlign: 'center' }}>
+                      📷 Foto hanya bisa diubah dari aplikasi desktop
+                    </Text>
+                  </View>
+                )}
 
                 {/* Tombol Simpan */}
                 <TouchableOpacity
