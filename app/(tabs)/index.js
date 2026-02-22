@@ -1,20 +1,20 @@
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { useFocusEffect } from "@react-navigation/native";
@@ -22,11 +22,11 @@ import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
 import {
-    addProduct,
-    deleteProduct,
-    getProducts,
-    openDB,
-    updateProduct,
+  addProduct,
+  deleteProduct,
+  getProducts,
+  openDB,
+  updateProduct,
 } from "../../helpers/database";
 import { performFullSync } from "../../helpers/syncService";
 
@@ -118,7 +118,7 @@ export default function App() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   };
@@ -163,7 +163,7 @@ export default function App() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
       setSyncing(false);
       // Reset status setelah 3 detik
@@ -283,14 +283,14 @@ export default function App() {
     Alert.alert("Pilih Foto", "Ambil foto dari mana?", [
       { text: "📷 Kamera", onPress: () => pickImage("camera") },
       { text: "🖼️ Galeri", onPress: () => pickImage("gallery") },
-      ...(formData.foto
+      ...(!editingProduct && formData.foto
         ? [
-            {
-              text: "🗑️ Hapus Foto",
-              style: "destructive",
-              onPress: () => setFormData((prev) => ({ ...prev, foto: null })),
-            },
-          ]
+          {
+            text: "🗑️ Hapus Foto",
+            style: "destructive",
+            onPress: () => setFormData((prev) => ({ ...prev, foto: null })),
+          },
+        ]
         : []),
       { text: "Batal", style: "cancel" },
     ]);
@@ -317,9 +317,7 @@ export default function App() {
         satuan: formData.satuan || "pcs",
         harga: parseHarga(formData.harga),
         lokasi: formData.lokasi.trim(),
-        // Saat edit: pertahankan foto lama (tidak bisa diubah dari mobile)
-        // Saat tambah: gunakan foto dari form
-        foto: editingProduct ? editingProduct.foto : formData.foto,
+        foto: formData.foto,
       };
 
       if (editingProduct) {
@@ -347,7 +345,7 @@ export default function App() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   };
@@ -385,7 +383,7 @@ export default function App() {
               if (database) {
                 try {
                   await database.closeAsync();
-                } catch (e) {}
+                } catch (e) { }
               }
             }
           },
@@ -425,7 +423,7 @@ export default function App() {
   const renderItem = ({ item }) => (
     <View style={styles.card}>
       <View style={styles.headerCard}>
-        <Text style={styles.namaBarang} numberOfLines={2}>
+        <Text style={styles.namaBarang} numberOfLines={5}>
           {item.nama}
         </Text>
         {item.lokasi ? (
@@ -451,10 +449,10 @@ export default function App() {
       <View style={styles.actionRow}>
         {item.foto ? (
           <TouchableOpacity
-            style={styles.btnAction}
+            style={[styles.btnAction, styles.btnFoto]}
             onPress={() => openFotoModal(item)}
           >
-            <Text style={styles.btnActionText}>📷 Foto</Text>
+            <Text style={[styles.btnActionText, { color: "#fff" }]}>📷 Foto</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -706,40 +704,29 @@ export default function App() {
                   placeholder="Rak A / Gudang Belakang"
                 />
 
-                {/* Foto — hanya tampil saat TAMBAH produk baru */}
-                {!editingProduct && (
-                  <>
-                    <Text style={styles.formLabel}>Foto Produk</Text>
-                    <TouchableOpacity
-                      style={styles.fotoPicker}
-                      onPress={showImagePickerOptions}
-                    >
-                      {formData.foto ? (
-                        <Image
-                          source={{ uri: formData.foto }}
-                          style={styles.fotoPreview}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={styles.fotoPlaceholder}>
-                          <Text style={{ fontSize: 32 }}>📷</Text>
-                          <Text style={{ color: "#95a5a6", marginTop: 5, fontSize: 12 }}>
-                            Ketuk untuk pilih foto
-                          </Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                {/* Info: foto tidak bisa diedit di mobile */}
-                {editingProduct && editingProduct.foto && (
-                  <View style={{ marginTop: 12, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8 }}>
-                    <Text style={{ fontSize: 12, color: '#7f8c8d', textAlign: 'center' }}>
-                      📷 Foto hanya bisa diubah dari aplikasi desktop
-                    </Text>
-                  </View>
-                )}
+                {/* Foto — tampil untuk TAMBAH dan EDIT */}
+                <>
+                  <Text style={styles.formLabel}>Foto Produk</Text>
+                  <TouchableOpacity
+                    style={styles.fotoPicker}
+                    onPress={showImagePickerOptions}
+                  >
+                    {formData.foto ? (
+                      <Image
+                        source={{ uri: formData.foto }}
+                        style={styles.fotoPreview}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.fotoPlaceholder}>
+                        <Text style={{ fontSize: 32 }}>📷</Text>
+                        <Text style={{ color: "#95a5a6", marginTop: 5, fontSize: 12 }}>
+                          Ketuk untuk pilih foto
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </>
 
                 {/* Tombol Simpan */}
                 <TouchableOpacity
@@ -869,6 +856,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     alignItems: "center",
+  },
+  btnFoto: {
+    backgroundColor: "#3498db",
   },
   btnEdit: {
     backgroundColor: "#ebf5fb",
