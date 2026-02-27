@@ -502,6 +502,7 @@ export default function App() {
           style={styles.searchInput}
           placeholder="🔍 Cari Barang..."
           placeholderTextColor="#95a5a6"
+          selectionColor="#2c3e50"
           value={search}
           onChangeText={(text) => searchFilter(text)}
         />
@@ -622,6 +623,7 @@ export default function App() {
                   }
                   placeholder="Contoh: Paku 5cm"
                   placeholderTextColor="#95a5a6"
+                  selectionColor="#2c3e50"
                 />
 
                 {/* Stok & Satuan */}
@@ -636,6 +638,7 @@ export default function App() {
                       }
                       placeholder="0"
                       placeholderTextColor="#95a5a6"
+                      selectionColor="#2c3e50"
                       keyboardType="numeric"
                     />
                   </View>
@@ -694,6 +697,7 @@ export default function App() {
                   }}
                   placeholder="0"
                   placeholderTextColor="#95a5a6"
+                  selectionColor="#2c3e50"
                   keyboardType="numeric"
                 />
 
@@ -707,6 +711,7 @@ export default function App() {
                   }
                   placeholder="Rak A / Gudang Belakang"
                   placeholderTextColor="#95a5a6"
+                  selectionColor="#2c3e50"
                 />
 
                 {/* Foto — tampil untuk TAMBAH dan EDIT */}
@@ -790,6 +795,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 15,
     fontSize: 14,
+    color: "#2c3e50",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1007,6 +1013,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 15,
     fontSize: 14,
+    color: "#2c3e50",
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
