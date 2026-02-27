@@ -105,7 +105,7 @@ async function uploadFoto(uuid, base64String) {
     // Hapus file temp
     try {
       await FileSystem.deleteAsync(tempPath, { idempotent: true });
-    } catch (e) {}
+    } catch (e) { }
   }
 }
 
@@ -118,16 +118,16 @@ async function downloadFoto(url) {
     // Gunakan expo-file-system untuk download
     const tempPath = `${FileSystem.cacheDirectory}temp_foto_${Date.now()}.jpg`;
     const downloadResult = await FileSystem.downloadAsync(url, tempPath);
-    
+
     if (downloadResult.status !== 200) return null;
-    
+
     const base64 = await FileSystem.readAsStringAsync(tempPath, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    
+
     // Hapus file temp
-    try { await FileSystem.deleteAsync(tempPath, { idempotent: true }); } catch (e) {}
-    
+    try { await FileSystem.deleteAsync(tempPath, { idempotent: true }); } catch (e) { }
+
     return `data:image/jpeg;base64,${base64}`;
   } catch (err) {
     console.error("Gagal download foto:", err.message);
@@ -165,6 +165,32 @@ async function pushSyncTable(db, tableName) {
       let statusLokal = row.sync_status;
 
       if (statusLokal === "deleted") {
+        // Hapus foto dari Supabase Storage jika ini adalah produk
+        if (tableName === "products" && uuid) {
+          try {
+            const fileName = `${uuid}.jpg`;
+            const { error: storageError } = await supabase.storage
+              .from("product-photos")
+              .remove([fileName]);
+
+            if (storageError) {
+              console.error(
+                `[PUSH] Gagal hapus foto dari storage:`,
+                storageError.message
+              );
+            } else {
+              console.log(
+                `[PUSH] Foto ${fileName} berhasil dihapus dari storage.`
+              );
+            }
+          } catch (storageErr) {
+            console.error(
+              `[PUSH] Error saat hapus foto:`,
+              storageErr.message
+            );
+          }
+        }
+
         // Soft delete di cloud, hard delete di lokal
         const { error } = await supabase
           .from(tableName)

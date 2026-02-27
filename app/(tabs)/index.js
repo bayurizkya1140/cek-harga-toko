@@ -501,6 +501,7 @@ export default function App() {
         <TextInput
           style={styles.searchInput}
           placeholder="🔍 Cari Barang..."
+          placeholderTextColor="#95a5a6"
           value={search}
           onChangeText={(text) => searchFilter(text)}
         />
@@ -590,7 +591,7 @@ export default function App() {
       >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior="padding"
         >
           <View style={styles.formOverlay}>
             <View style={styles.formContent}>
@@ -620,6 +621,7 @@ export default function App() {
                     setFormData((prev) => ({ ...prev, nama: t }))
                   }
                   placeholder="Contoh: Paku 5cm"
+                  placeholderTextColor="#95a5a6"
                 />
 
                 {/* Stok & Satuan */}
@@ -633,10 +635,11 @@ export default function App() {
                         setFormData((prev) => ({ ...prev, stok: t }))
                       }
                       placeholder="0"
+                      placeholderTextColor="#95a5a6"
                       keyboardType="numeric"
                     />
                   </View>
-                  <View style={{ flex: 1, marginLeft: 8 }}>
+                  <View style={{ flex: 1, marginLeft: 8, zIndex: 10 }}>
                     <Text style={styles.formLabel}>Satuan</Text>
                     <TouchableOpacity
                       style={[styles.formInput, styles.satuanPicker]}
@@ -690,6 +693,7 @@ export default function App() {
                     setFormData((prev) => ({ ...prev, harga: formatted }));
                   }}
                   placeholder="0"
+                  placeholderTextColor="#95a5a6"
                   keyboardType="numeric"
                 />
 
@@ -702,6 +706,7 @@ export default function App() {
                     setFormData((prev) => ({ ...prev, lokasi: t }))
                   }
                   placeholder="Rak A / Gudang Belakang"
+                  placeholderTextColor="#95a5a6"
                 />
 
                 {/* Foto — tampil untuk TAMBAH dan EDIT */}
@@ -738,7 +743,7 @@ export default function App() {
                   </Text>
                 </TouchableOpacity>
 
-                <View style={{ height: 30 }} />
+                <View style={{ height: 80 }} />
               </ScrollView>
             </View>
           </View>
@@ -1060,17 +1065,21 @@ const styles = StyleSheet.create({
     color: "#95a5a6",
   },
   satuanDropdown: {
+    position: "absolute",
+    top: 75,
+    left: 0,
+    right: 0,
     backgroundColor: "white",
     borderWidth: 1,
     borderColor: "#e0e0e0",
     borderRadius: 10,
-    marginTop: 4,
-    elevation: 4,
+    elevation: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
     overflow: "hidden",
+    zIndex: 20,
   },
   satuanOption: {
     paddingVertical: 10,
