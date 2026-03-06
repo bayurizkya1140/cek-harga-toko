@@ -29,7 +29,7 @@ function uuidv4() {
 const SUPABASE_COLUMNS = {
   products: ['uuid', 'nama', 'stok', 'satuan', 'harga', 'lokasi', 'foto_url', 'updated_at', 'is_deleted', 'id_lokal'],
   transactions: ['uuid', 'tanggal', 'total', 'detail', 'updated_at', 'is_deleted', 'id_lokal'],
-  piutang: ['uuid', 'nama_pembeli', 'alamat', 'tanggal', 'total', 'detail', 'status', 'updated_at', 'is_deleted', 'id_lokal'],
+  piutang: ['uuid', 'nama_pembeli', 'alamat', 'tanggal', 'total', 'detail', 'catatan', 'status', 'updated_at', 'is_deleted', 'id_lokal'],
 };
 
 /**

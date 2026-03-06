@@ -1,23 +1,24 @@
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    FlatList,
-    Modal,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { openDB } from "../../helpers/database";
+import { addPiutang, deletePiutang, getProducts, markPiutangLunas, openDB } from "../../helpers/database";
+import { performFullSync } from "../../helpers/syncService";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -31,9 +32,32 @@ export default function PiutangScreen() {
   const [totalPiutang, setTotalPiutang] = useState(0);
   const [jumlahOrang, setJumlahOrang] = useState(0);
 
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle, syncing, success, error
+
   // State untuk modal detail
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedPiutang, setSelectedPiutang] = useState(null);
+
+  // State untuk modal Tambah Piutang
+  const [formModalVisible, setFormModalVisible] = useState(false);
+  const [formData, setFormData] = useState({
+    nama_pembeli: "",
+    alamat: "",
+    tanggal: new Date().toISOString().split("T")[0],
+    catatan: "",
+    items: [], // [{uuid, nama, harga, qty, satuan, subtotal}]
+  });
+
+  // State untuk Product Picker (di dalam Add Modal)
+  const [productPickerVisible, setProductPickerVisible] = useState(false);
+  const [allProducts, setAllProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProductForQty, setSelectedProductForQty] = useState(null);
+  const [qtyInput, setQtyInput] = useState("1");
+  const [qtyModalVisible, setQtyModalVisible] = useState(false);
 
   // Auto load saat fokus ke tab ini
   useFocusEffect(
@@ -109,7 +133,7 @@ export default function PiutangScreen() {
       setFilterData([]);
     } finally {
       if (database) {
-        try { await database.closeAsync(); } catch (e) {}
+        try { await database.closeAsync(); } catch (e) { }
       }
     }
   };
@@ -129,12 +153,59 @@ export default function PiutangScreen() {
           ? item.nama_pembeli.toUpperCase()
           : "";
         const alamat = item.alamat ? item.alamat.toUpperCase() : "";
+        const catatan = item.catatan ? item.catatan.toUpperCase() : "";
         const textData = text.toUpperCase();
-        return nama.indexOf(textData) > -1 || alamat.indexOf(textData) > -1;
+        return (
+          nama.indexOf(textData) > -1 ||
+          alamat.indexOf(textData) > -1 ||
+          catatan.indexOf(textData) > -1
+        );
       });
       setFilterData(newData);
     } else {
       setFilterData(data);
+    }
+  };
+
+  // --- SYNC ---
+  const handleSync = async () => {
+    if (syncing) return;
+    let database = null;
+    try {
+      setSyncing(true);
+      setSyncStatus("syncing");
+
+      database = await openDB();
+      if (!database) {
+        Alert.alert("Error", "Gagal membuka database");
+        setSyncStatus("error");
+        return;
+      }
+
+      const result = await performFullSync(database);
+
+      if (result.success) {
+        setSyncStatus("success");
+        // Reload data setelah sync
+        loadAll(activeTab);
+        Alert.alert("Sukses", "Sinkronisasi berhasil! ✅");
+      } else {
+        setSyncStatus("error");
+        Alert.alert("Gagal", "Sync gagal: " + (result.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.log("Sync error:", err);
+      setSyncStatus("error");
+      Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
+    } finally {
+      if (database) {
+        try {
+          await database.closeAsync();
+        } catch (e) { }
+      }
+      setSyncing(false);
+      // Reset status setelah 3 detik
+      setTimeout(() => setSyncStatus("idle"), 3000);
     }
   };
 
@@ -151,6 +222,184 @@ export default function PiutangScreen() {
   const closeDetail = () => {
     setModalVisible(false);
     setSelectedPiutang(null);
+  };
+
+  // --- ACTIONS: ADD PIUTANG ---
+  const openAddForm = async () => {
+    setFormData({
+      nama_pembeli: "",
+      alamat: "",
+      tanggal: new Date().toISOString().split("T")[0],
+      catatan: "",
+      items: [],
+    });
+
+    // Load products for picker
+    let database = null;
+    try {
+      database = await openDB();
+      if (database) {
+        const prods = await getProducts(database);
+        setAllProducts(prods);
+        setFilteredProducts(prods);
+      }
+    } catch (e) {
+      console.log("Error loading products for picker:", e);
+    } finally {
+      if (database) await database.closeAsync();
+    }
+
+    setFormModalVisible(true);
+  };
+
+  const closeFormModal = () => {
+    setFormModalVisible(false);
+  };
+
+  const handleProductSearch = (text) => {
+    setProductSearch(text);
+    if (text) {
+      const filtered = allProducts.filter(p => p.nama.toUpperCase().includes(text.toUpperCase()));
+      setFilteredProducts(filtered);
+    } else {
+      setFilteredProducts(allProducts);
+    }
+  };
+
+  const openQtyModal = (product) => {
+    setSelectedProductForQty(product);
+    setQtyInput("1");
+    setQtyModalVisible(true);
+  };
+
+  const addProductToItems = () => {
+    const qty = parseFloat(qtyInput) || 0;
+    if (qty <= 0) {
+      Alert.alert("Error", "Jumlah harus lebih besar dari 0");
+      return;
+    }
+
+    const newItem = {
+      uuid: selectedProductForQty.uuid,
+      nama: selectedProductForQty.nama,
+      harga: selectedProductForQty.harga || 0,
+      qty: qty,
+      satuan: selectedProductForQty.satuan || "pcs",
+      subtotal: (selectedProductForQty.harga || 0) * qty
+    };
+
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, newItem]
+    }));
+
+    setQtyModalVisible(false);
+    setProductPickerVisible(false);
+    setProductSearch("");
+  };
+
+  const removeItem = (index) => {
+    const newItems = [...formData.items];
+    newItems.splice(index, 1);
+    setFormData(prev => ({ ...prev, items: newItems }));
+  };
+
+  const calculateTotal = () => {
+    return formData.items.reduce((sum, item) => sum + item.subtotal, 0);
+  };
+
+  const handleSavePiutang = async () => {
+    if (!formData.nama_pembeli.trim()) {
+      Alert.alert("Error", "Nama pembeli harus diisi");
+      return;
+    }
+    if (formData.items.length === 0) {
+      Alert.alert("Error", "Pilih minimal 1 barang");
+      return;
+    }
+
+    let database = null;
+    try {
+      database = await openDB();
+      if (!database) return;
+
+      await addPiutang(database, {
+        nama_pembeli: formData.nama_pembeli.trim(),
+        alamat: formData.alamat.trim(),
+        tanggal: formData.tanggal,
+        total: calculateTotal(),
+        detail: JSON.stringify(formData.items),
+        catatan: formData.catatan.trim()
+      });
+
+      Alert.alert("Sukses", "Piutang berhasil ditambahkan");
+      closeFormModal();
+      loadAll(activeTab);
+    } catch (e) {
+      Alert.alert("Error", "Gagal menyimpan piutang: " + e.message);
+    } finally {
+      if (database) await database.closeAsync();
+    }
+  };
+
+  // --- ACTIONS: LUNAS & HAPUS ---
+  const handleMarkLunas = async () => {
+    Alert.alert(
+      "Konfirmasi Lunas",
+      `Tandai piutang ${selectedPiutang.nama_pembeli} sebagai LUNAS?\n\nAksi ini akan:\n1. Mengurangi stok produk\n2. Menambah riwayat transaksi`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Ya, Lunas",
+          onPress: async () => {
+            let database = null;
+            try {
+              database = await openDB();
+              if (database) {
+                await markPiutangLunas(database, selectedPiutang);
+                Alert.alert("Sukses", "Piutang telah dilunasi ✅");
+                closeDetail();
+                loadAll(activeTab);
+              }
+            } catch (e) {
+              Alert.alert("Error", "Gagal melunasi piutang: " + e.message);
+            } finally {
+              if (database) await database.closeAsync();
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeletePiutang = async () => {
+    Alert.alert(
+      "Hapus Piutang",
+      `Apakah Anda yakin ingin menghapus piutang ${selectedPiutang.nama_pembeli}?`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Hapus",
+          style: "destructive",
+          onPress: async () => {
+            let database = null;
+            try {
+              database = await openDB();
+              if (database) {
+                await deletePiutang(database, selectedPiutang.id);
+                Alert.alert("Sukses", "Piutang berhasil dihapus");
+                closeDetail();
+                loadAll(activeTab);
+              }
+            } catch (e) {
+              Alert.alert("Error", "Gagal menghapus piutang: " + e.message);
+            } finally {
+              if (database) await database.closeAsync();
+            }
+          }
+        }
+      ]
+    );
   };
 
   const formatRupiah = (num) => {
@@ -271,6 +520,13 @@ export default function PiutangScreen() {
           </Text>
         </View>
       ) : null}
+      {item.catatan ? (
+        <View style={[styles.cardDetail, { borderTopWidth: item.detail ? 0 : 1, marginTop: item.detail ? 4 : 8, paddingTop: item.detail ? 0 : 8 }]}>
+          <Text style={styles.detailPreview} numberOfLines={1}>
+            📌 {item.catatan}
+          </Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 
@@ -281,7 +537,33 @@ export default function PiutangScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>💰 Daftar Piutang</Text>
-        <Text style={styles.headerSubtitle}>Kelola piutang toko Anda</Text>
+        <Text
+          style={[
+            styles.headerSubtitle,
+            syncStatus === "syncing" && { color: "#f39c12" },
+            syncStatus === "success" && { color: "#27ae60" },
+            syncStatus === "error" && { color: "#e74c3c" },
+          ]}
+        >
+          {syncStatus === "syncing"
+            ? "⏳ Menyinkronkan..."
+            : syncStatus === "success"
+              ? "✅ Tersinkronisasi"
+              : syncStatus === "error"
+                ? "❌ Gagal Sync"
+                : "Kelola piutang toko Anda"}
+        </Text>
+        <TouchableOpacity
+          style={[styles.btnSync, syncing && styles.btnSyncDisabled]}
+          onPress={handleSync}
+          disabled={syncing}
+        >
+          {syncing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.btnSyncText}>🔄 Sync Data</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Summary Cards */}
@@ -361,15 +643,15 @@ export default function PiutangScreen() {
                 {!dbReady
                   ? "📂"
                   : activeTab === "belum_lunas"
-                  ? "✅"
-                  : "📋"}
+                    ? "✅"
+                    : "📋"}
               </Text>
               <Text style={styles.emptyText}>
                 {!dbReady
                   ? "Database belum ada.\nSilakan Import di tab Home terlebih dahulu."
                   : activeTab === "belum_lunas"
-                  ? "Tidak ada piutang yang belum lunas"
-                  : "Belum ada piutang yang sudah lunas"}
+                    ? "Tidak ada piutang yang belum lunas"
+                    : "Belum ada piutang yang sudah lunas"}
               </Text>
             </View>
           }
@@ -402,8 +684,8 @@ export default function PiutangScreen() {
                     <Text style={styles.modalAvatarText}>
                       {selectedPiutang.nama_pembeli
                         ? selectedPiutang.nama_pembeli
-                            .charAt(0)
-                            .toUpperCase()
+                          .charAt(0)
+                          .toUpperCase()
                         : "?"}
                     </Text>
                   </View>
@@ -431,7 +713,7 @@ export default function PiutangScreen() {
                     >
                       {selectedPiutang.status
                         ? selectedPiutang.status.charAt(0).toUpperCase() +
-                          selectedPiutang.status.slice(1)
+                        selectedPiutang.status.slice(1)
                         : "Belum Lunas"}
                     </Text>
                   </View>
@@ -462,6 +744,18 @@ export default function PiutangScreen() {
                       {formatRupiah(selectedPiutang.total)}
                     </Text>
                   </View>
+
+                  {selectedPiutang.catatan ? (
+                    <>
+                      <View style={styles.modalDivider} />
+                      <View style={styles.modalInfoRow}>
+                        <Text style={styles.modalInfoLabel}>📌 Catatan</Text>
+                        <Text style={styles.modalInfoValue}>
+                          {selectedPiutang.catatan}
+                        </Text>
+                      </View>
+                    </>
+                  ) : null}
 
                   {selectedPiutang.detail ? (
                     <>
@@ -502,8 +796,191 @@ export default function PiutangScreen() {
                     </>
                   ) : null}
                 </View>
+
+                {/* MODAL ACTIONS: LUNAS & HAPUS */}
+                <View style={styles.modalActions}>
+                  {selectedPiutang.status?.toLowerCase() === "belum lunas" && (
+                    <TouchableOpacity
+                      style={[styles.btnActionLarge, styles.btnLunasLarge]}
+                      onPress={handleMarkLunas}
+                    >
+                      <Text style={styles.btnActionLargeText}>✅ Tandai Lunas & Potong Stok</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.btnActionLarge, styles.btnHapusLarge]}
+                    onPress={handleDeletePiutang}
+                  >
+                    <Text style={styles.btnActionLargeText}>🗑️ Hapus Piutang</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ height: 30 }} />
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* FAB ADD PIUTANG */}
+      <TouchableOpacity style={styles.fab} onPress={openAddForm}>
+        <Text style={styles.fabText}>➕</Text>
+      </TouchableOpacity>
+
+      {/* ========== MODAL: TAMBAH PIUTANG ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={formModalVisible}
+        onRequestClose={closeFormModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: screenHeight * 0.9 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>➕ Tambah Piutang Baru</Text>
+              <TouchableOpacity style={styles.btnClose} onPress={closeFormModal}>
+                <Text style={styles.btnCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.formLabel}>Nama Pembeli *</Text>
+              <TextInput
+                style={styles.formInput}
+                value={formData.nama_pembeli}
+                onChangeText={(t) => setFormData(p => ({ ...p, nama_pembeli: t }))}
+                placeholder="Contoh: Budi Santoso"
+              />
+
+              <Text style={styles.formLabel}>Alamat</Text>
+              <TextInput
+                style={styles.formInput}
+                value={formData.alamat}
+                onChangeText={(t) => setFormData(p => ({ ...p, alamat: t }))}
+                placeholder="Jl. Merdeka No. 123"
+              />
+
+              <Text style={styles.formLabel}>Tanggal</Text>
+              <TextInput
+                style={styles.formInput}
+                value={formData.tanggal}
+                onChangeText={(t) => setFormData(p => ({ ...p, tanggal: t }))}
+                placeholder="YYYY-MM-DD"
+              />
+
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>📝 Daftar Barang *</Text>
+                <TouchableOpacity
+                  style={styles.btnAddItem}
+                  onPress={() => setProductPickerVisible(true)}
+                >
+                  <Text style={styles.btnAddItemText}>+ Pilih Produk</Text>
+                </TouchableOpacity>
+              </View>
+
+              {formData.items.map((item, index) => (
+                <View key={index} style={styles.itemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName}>{item.nama}</Text>
+                    <Text style={styles.itemSubText}>{item.qty} {item.satuan} x {formatRupiah(item.harga)}</Text>
+                  </View>
+                  <Text style={styles.itemSubtotal}>{formatRupiah(item.subtotal)}</Text>
+                  <TouchableOpacity onPress={() => removeItem(index)} style={styles.btnRemove}>
+                    <Text style={styles.btnRemoveText}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              <View style={styles.totalContainer}>
+                <Text style={styles.totalLabel}>Total Piutang:</Text>
+                <Text style={styles.totalValue}>{formatRupiah(calculateTotal())}</Text>
+              </View>
+
+              <Text style={styles.formLabel}>Catatan</Text>
+              <TextInput
+                style={[styles.formInput, { height: 80, textAlignVertical: 'top' }]}
+                value={formData.catatan}
+                onChangeText={(t) => setFormData(p => ({ ...p, catatan: t }))}
+                placeholder="Contoh: Janji bayar akhir bulan"
+                multiline
+              />
+
+              <TouchableOpacity style={styles.btnSave} onPress={handleSavePiutang}>
+                <Text style={styles.btnSaveText}>💾 Simpan Piutang</Text>
+              </TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL: PRODUCT PICKER ========== */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={productPickerVisible}
+        onRequestClose={() => setProductPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: screenHeight * 0.8 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pilih Produk dari Gudang</Text>
+              <TouchableOpacity style={styles.btnClose} onPress={() => setProductPickerVisible(false)}>
+                <Text style={styles.btnCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.searchPickerContainer}>
+              <TextInput
+                style={styles.searchPickerInput}
+                placeholder="🔍 Cari nama barang..."
+                value={productSearch}
+                onChangeText={handleProductSearch}
+              />
+            </View>
+            <FlatList
+              data={filteredProducts}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => openQtyModal(item)}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickerItemName}>{item.nama}</Text>
+                    <Text style={styles.pickerItemStok}>Stok: {item.stok} {item.satuan}</Text>
+                  </View>
+                  <Text style={styles.pickerItemHarga}>{formatRupiah(item.harga)}</Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyPicker}>Produk tidak ditemukan</Text>}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL: QTY INPUT ========== */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={qtyModalVisible}
+        onRequestClose={() => setQtyModalVisible(false)}
+      >
+        <View style={styles.modalOverlayCenter}>
+          <View style={styles.qtyModalContent}>
+            <Text style={styles.qtyTitle}>Jumlah Barang</Text>
+            <Text style={styles.qtyProdName}>{selectedProductForQty?.nama}</Text>
+            <TextInput
+              style={styles.qtyInput}
+              value={qtyInput}
+              onChangeText={setQtyInput}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <View style={styles.qtyActions}>
+              <TouchableOpacity style={styles.btnCancelQty} onPress={() => setQtyModalVisible(false)}>
+                <Text style={styles.btnCancelQtyText}>Batal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnConfirmQty} onPress={addProductToItems}>
+                <Text style={styles.btnConfirmQtyText}>Tambah</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -520,9 +997,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#2c3e50",
     padding: 12,
     paddingTop: Platform.OS === "android" ? 35 : 12,
-    alignItems: "center",
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
+    alignItems: "center",
   },
   title: {
     color: "white",
@@ -533,6 +1010,26 @@ const styles = StyleSheet.create({
     color: "#95a5a6",
     fontSize: 11,
     marginTop: 2,
+    textAlign: "center",
+  },
+  btnSync: {
+    backgroundColor: "#3498db",
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    elevation: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+    minWidth: 120,
+  },
+  btnSyncDisabled: {
+    backgroundColor: "#7f8c8d",
+  },
+  btnSyncText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 11,
   },
   summaryContainer: {
     flexDirection: "row",
@@ -904,5 +1401,265 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#e67e22",
     fontWeight: "bold",
+  },
+
+  // FAB
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 25,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#2c3e50",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  fabText: {
+    fontSize: 24,
+    color: "white",
+  },
+
+  // Form Styles
+  formLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2c3e50",
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  formInput: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dcdde1",
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    color: "#2c3e50",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#2c3e50",
+  },
+  btnAddItem: {
+    backgroundColor: "#3498db",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  btnAddItemText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  itemRow: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#f0f2f5",
+  },
+  itemName: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#2c3e50",
+  },
+  itemSubText: {
+    fontSize: 12,
+    color: "#7f8c8d",
+  },
+  itemSubtotal: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#e67e22",
+    marginHorizontal: 10,
+  },
+  btnRemove: {
+    padding: 5,
+  },
+  btnRemoveText: {
+    fontSize: 16,
+  },
+  totalContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#f1f2f6",
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#dcdde1",
+  },
+  totalLabel: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#2c3e50",
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#e67e22",
+  },
+  btnSave: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 25,
+    elevation: 3,
+  },
+  btnSaveText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+
+  // Modal Detail Actions
+  modalActions: {
+    marginTop: 25,
+    gap: 12,
+  },
+  btnActionLarge: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    elevation: 2,
+    borderWidth: 1,
+  },
+  btnLunasLarge: {
+    backgroundColor: "#27ae60",
+    borderColor: "#2ecc71",
+  },
+  btnHapusLarge: {
+    backgroundColor: "#e74c3c",
+    borderColor: "#c0392b",
+  },
+  btnActionLargeText: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "white",
+  },
+
+  // Picker Styles
+  searchPickerContainer: {
+    padding: 15,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f2f6",
+  },
+  searchPickerInput: {
+    backgroundColor: "#f1f2f6",
+    padding: 10,
+    borderRadius: 10,
+    fontSize: 14,
+  },
+  pickerItem: {
+    flexDirection: "row",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f2f6",
+    alignItems: "center",
+  },
+  pickerItemName: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#2c3e50",
+  },
+  pickerItemStok: {
+    fontSize: 12,
+    color: "#7f8c8d",
+  },
+  pickerItemHarga: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#27ae60",
+  },
+  emptyPicker: {
+    textAlign: "center",
+    marginTop: 20,
+    color: "#95a5a6",
+  },
+
+  // Qty Modal
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  qtyModalContent: {
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 20,
+    width: "100%",
+    maxWidth: 300,
+  },
+  qtyTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    textAlign: "center",
+    color: "#2c3e50",
+  },
+  qtyProdName: {
+    fontSize: 14,
+    textAlign: "center",
+    color: "#7f8c8d",
+    marginTop: 5,
+    marginBottom: 15,
+  },
+  qtyInput: {
+    borderWidth: 1,
+    borderColor: "#dcdde1",
+    borderRadius: 10,
+    fontSize: 24,
+    textAlign: "center",
+    padding: 10,
+    color: "#2c3e50",
+    fontWeight: "bold",
+  },
+  qtyActions: {
+    flexDirection: "row",
+    marginTop: 20,
+    gap: 10,
+  },
+  btnCancelQty: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "#f1f2f6",
+  },
+  btnConfirmQty: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "#2c3e50",
+  },
+  btnCancelQtyText: {
+    fontWeight: "bold",
+    color: "#7f8c8d",
+  },
+  btnConfirmQtyText: {
+    fontWeight: "bold",
+    color: "white",
   },
 });

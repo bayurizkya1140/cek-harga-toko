@@ -68,6 +68,7 @@ async function initDB(db) {
         tanggal TEXT NOT NULL,
         total INTEGER DEFAULT 0,
         detail TEXT,
+        catatan TEXT,
         status TEXT DEFAULT 'belum lunas',
         sync_status TEXT DEFAULT 'pending_insert',
         updated_at TEXT
@@ -106,14 +107,22 @@ async function initDB(db) {
       if (table === 'products' && !existingCols.includes('foto')) {
         try {
           await db.runAsync(`ALTER TABLE products ADD COLUMN foto TEXT`);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Tambah kolom 'alamat' untuk piutang jika belum ada
       if (table === 'piutang' && !existingCols.includes('alamat')) {
         try {
           await db.runAsync(`ALTER TABLE piutang ADD COLUMN alamat TEXT`);
-        } catch (e) {}
+        } catch (e) { }
+      }
+
+      // Tambah kolom 'catatan' untuk piutang jika belum ada
+      if (table === 'piutang' && !existingCols.includes('catatan')) {
+        try {
+          await db.runAsync(`ALTER TABLE piutang ADD COLUMN catatan TEXT`);
+          console.log(`Kolom catatan ditambahkan ke piutang`);
+        } catch (e) { }
       }
     }
   } catch (e) {
@@ -168,6 +177,79 @@ export async function deleteProduct(db, id) {
   await db.runAsync(
     "UPDATE products SET sync_status = 'deleted', updated_at = ? WHERE id = ?",
     [updated_at, id]
+  );
+}
+
+// =============================================
+// CRUD PIUTANG
+// =============================================
+
+/**
+ * Tambah piutang baru.
+ */
+export async function addPiutang(db, { nama_pembeli, alamat, tanggal, total, detail, catatan }) {
+  const newUuid = uuidv4();
+  const updated_at = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO piutang (uuid, nama_pembeli, alamat, tanggal, total, detail, catatan, status, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'belum lunas', 'pending_insert', ?)`,
+    [newUuid, nama_pembeli, alamat || '', tanggal, total || 0, detail || null, catatan || null, updated_at]
+  );
+}
+
+/**
+ * Hapus piutang (soft-delete).
+ */
+export async function deletePiutang(db, id) {
+  const updated_at = new Date().toISOString();
+  await db.runAsync(
+    "UPDATE piutang SET sync_status = 'deleted', updated_at = ? WHERE id = ?",
+    [updated_at, id]
+  );
+}
+
+/**
+ * Tandai piutang sebagai lunas.
+ * Melakukan: update status, kurangi stok produk, tambah riwayat transaksi.
+ */
+export async function markPiutangLunas(db, piutang) {
+  const updated_at = new Date().toISOString();
+  const transactionId = uuidv4();
+
+  // 1. Update status piutang
+  await db.runAsync(
+    "UPDATE piutang SET status = 'lunas', sync_status = 'pending_update', updated_at = ? WHERE id = ?",
+    [updated_at, piutang.id]
+  );
+
+  // 2. Kurangi stok produk & Generate riwayat transaksi (jika ada detail produk)
+  if (piutang.detail) {
+    try {
+      const details = JSON.parse(piutang.detail);
+      if (Array.isArray(details)) {
+        for (const item of details) {
+          // Kurangi stok per produk
+          // Catatan: item.nama atau uuid produk sebaiknya digunakan, tapi di sini diasumsikan 
+          // filter berdasarkan nama cukup atau jika ada id_produk/uuid_produk di detail.
+          // Menggunakan nama karena itu yang ada di detail JSON saat ini.
+          if (item.nama) {
+            await db.runAsync(
+              `UPDATE products SET stok = stok - ?, sync_status = CASE WHEN sync_status = 'pending_insert' THEN 'pending_insert' ELSE 'pending_update' END, updated_at = ? WHERE nama = ?`,
+              [item.qty || 0, updated_at, item.nama]
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error parsing piutang detail for stock update:", e);
+    }
+  }
+
+  // 3. Masukkan ke riwayat transaksi
+  await db.runAsync(
+    `INSERT INTO transactions (uuid, tanggal, total, detail, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, 'pending_insert', ?)`,
+    [transactionId, piutang.tanggal, piutang.total, piutang.detail, updated_at]
   );
 }
 
