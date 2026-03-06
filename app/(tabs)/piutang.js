@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   SafeAreaView,
@@ -619,6 +620,7 @@ export default function PiutangScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="🔍 Cari nama / alamat..."
+          placeholderTextColor="#95a5a6"
           value={search}
           onChangeText={(text) => searchFilter(text)}
         />
@@ -814,7 +816,7 @@ export default function PiutangScreen() {
                     <Text style={styles.btnActionLargeText}>🗑️ Hapus Piutang</Text>
                   </TouchableOpacity>
                 </View>
-                <View style={{ height: 30 }} />
+                <View style={{ height: 80 }} />
               </ScrollView>
             )}
           </View>
@@ -833,7 +835,10 @@ export default function PiutangScreen() {
         visible={formModalVisible}
         onRequestClose={closeFormModal}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <View style={[styles.modalContent, { maxHeight: screenHeight * 0.9 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>➕ Tambah Piutang Baru</Text>
@@ -849,6 +854,7 @@ export default function PiutangScreen() {
                 value={formData.nama_pembeli}
                 onChangeText={(t) => setFormData(p => ({ ...p, nama_pembeli: t }))}
                 placeholder="Contoh: Budi Santoso"
+                placeholderTextColor="#95a5a6"
               />
 
               <Text style={styles.formLabel}>Alamat</Text>
@@ -857,6 +863,7 @@ export default function PiutangScreen() {
                 value={formData.alamat}
                 onChangeText={(t) => setFormData(p => ({ ...p, alamat: t }))}
                 placeholder="Jl. Merdeka No. 123"
+                placeholderTextColor="#95a5a6"
               />
 
               <Text style={styles.formLabel}>Tanggal</Text>
@@ -865,6 +872,7 @@ export default function PiutangScreen() {
                 value={formData.tanggal}
                 onChangeText={(t) => setFormData(p => ({ ...p, tanggal: t }))}
                 placeholder="YYYY-MM-DD"
+                placeholderTextColor="#95a5a6"
               />
 
               <View style={styles.sectionHeader}>
@@ -901,16 +909,17 @@ export default function PiutangScreen() {
                 value={formData.catatan}
                 onChangeText={(t) => setFormData(p => ({ ...p, catatan: t }))}
                 placeholder="Contoh: Janji bayar akhir bulan"
+                placeholderTextColor="#95a5a6"
                 multiline
               />
 
               <TouchableOpacity style={styles.btnSave} onPress={handleSavePiutang}>
                 <Text style={styles.btnSaveText}>💾 Simpan Piutang</Text>
               </TouchableOpacity>
-              <View style={{ height: 40 }} />
+              <View style={{ height: 80 }} />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ========== MODAL: PRODUCT PICKER ========== */}
@@ -920,7 +929,10 @@ export default function PiutangScreen() {
         visible={productPickerVisible}
         onRequestClose={() => setProductPickerVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <View style={[styles.modalContent, { maxHeight: screenHeight * 0.8 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pilih Produk dari Gudang</Text>
@@ -932,6 +944,7 @@ export default function PiutangScreen() {
               <TextInput
                 style={styles.searchPickerInput}
                 placeholder="🔍 Cari nama barang..."
+                placeholderTextColor="#95a5a6"
                 value={productSearch}
                 onChangeText={handleProductSearch}
               />
@@ -952,7 +965,7 @@ export default function PiutangScreen() {
               contentContainerStyle={{ paddingBottom: 20 }}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ========== MODAL: QTY INPUT ========== */}
@@ -962,7 +975,10 @@ export default function PiutangScreen() {
         visible={qtyModalVisible}
         onRequestClose={() => setQtyModalVisible(false)}
       >
-        <View style={styles.modalOverlayCenter}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlayCenter}
+        >
           <View style={styles.qtyModalContent}>
             <Text style={styles.qtyTitle}>Jumlah Barang</Text>
             <Text style={styles.qtyProdName}>{selectedProductForQty?.nama}</Text>
@@ -982,7 +998,7 @@ export default function PiutangScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1114,6 +1130,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 15,
     fontSize: 14,
+    color: "#2c3e50",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1569,6 +1586,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 10,
     fontSize: 14,
+    color: "#2c3e50",
   },
   pickerItem: {
     flexDirection: "row",
