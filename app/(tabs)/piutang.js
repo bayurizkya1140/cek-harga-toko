@@ -46,7 +46,7 @@ export default function PiutangScreen() {
   const [formData, setFormData] = useState({
     nama_pembeli: "",
     alamat: "",
-    tanggal: new Date().toISOString().split("T")[0],
+    tanggal: new Date().toLocaleString('id-ID'),
     catatan: "",
     items: [], // [{uuid, nama, harga, qty, satuan, subtotal}]
   });
@@ -230,7 +230,7 @@ export default function PiutangScreen() {
     setFormData({
       nama_pembeli: "",
       alamat: "",
-      tanggal: new Date().toISOString().split("T")[0],
+      tanggal: new Date().toLocaleString('id-ID'),
       catatan: "",
       items: [],
     });
@@ -868,10 +868,10 @@ export default function PiutangScreen() {
 
               <Text style={styles.formLabel}>Tanggal</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { backgroundColor: "#e8ecef", color: "#7f8c8d" }]}
                 value={formData.tanggal}
-                onChangeText={(t) => setFormData(p => ({ ...p, tanggal: t }))}
-                placeholder="YYYY-MM-DD"
+                editable={false}
+                placeholder="DD/MM/YYYY, HH.mm.ss"
                 placeholderTextColor="#95a5a6"
               />
 
