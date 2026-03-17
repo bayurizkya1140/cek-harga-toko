@@ -25,10 +25,12 @@ import {
   addProduct,
   deleteProduct,
   getProducts,
+  getSuppliers,
   openDB,
   updateProduct,
 } from "../../helpers/database";
 import { performFullSync } from "../../helpers/syncService";
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -64,6 +66,10 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [imageLoading, setImageLoading] = useState(true);
 
+  // State untuk data suplier
+  const [suppliers, setSuppliers] = useState([]);
+  const [suplierPickerVisible, setSuplierPickerVisible] = useState(false);
+
   // State untuk modal form (tambah / edit)
   const [formModalVisible, setFormModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null); // null = tambah, object = edit
@@ -74,10 +80,17 @@ export default function App() {
     harga: "",
     lokasi: "",
     foto: null,
+    suplier_id: null,
+    has_kadaluarsa: false,
+    batch_number: "",
+    tanggal_kadaluarsa: new Date(),
   });
 
   // State untuk satuan picker
   const [satuanPickerVisible, setSatuanPickerVisible] = useState(false);
+
+  // State untuk DatePicker
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // --- AUTO LOAD SAAT TAB DIFOKUSKAN ---
   useFocusEffect(
@@ -101,6 +114,10 @@ export default function App() {
 
       const result = await getProducts(database);
       setDataProduk(result);
+
+      // Load data suplier untuk dropdown form
+      const suplierResult = await getSuppliers(database);
+      setSuppliers(suplierResult);
 
       // Jika sedang ada pencarian, filter ulang
       if (search) {
@@ -145,6 +162,9 @@ export default function App() {
         // Reload data setelah sync
         const freshData = await getProducts(database);
         setDataProduk(freshData);
+        // Reload supliers
+        const freshSuppliers = await getSuppliers(database);
+        setSuppliers(freshSuppliers);
         if (search) {
           applySearch(freshData, search);
         } else {
@@ -212,13 +232,23 @@ export default function App() {
       harga: "",
       lokasi: "",
       foto: null,
+      suplier_id: null,
+      has_kadaluarsa: false,
+      batch_number: "",
+      tanggal_kadaluarsa: new Date(),
     });
     setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
     setFormModalVisible(true);
   };
 
   const openEditForm = (product) => {
     setEditingProduct(product);
+    let parsedDate = new Date();
+    if (product.tanggal_kadaluarsa) {
+       const [year, month, day] = product.tanggal_kadaluarsa.split('-');
+       parsedDate = new Date(year, month - 1, day);
+    }
     setFormData({
       nama: product.nama || "",
       stok: product.stok?.toString() || "0",
@@ -226,8 +256,13 @@ export default function App() {
       harga: product.harga ? formatRibuan(product.harga) : "0",
       lokasi: product.lokasi || "",
       foto: product.foto || null,
+      suplier_id: product.suplier_id || null,
+      has_kadaluarsa: product.has_kadaluarsa === 1,
+      batch_number: product.batch_number || "",
+      tanggal_kadaluarsa: parsedDate,
     });
     setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
     setFormModalVisible(true);
   };
 
@@ -235,6 +270,7 @@ export default function App() {
     setFormModalVisible(false);
     setEditingProduct(null);
     setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
   };
 
   // --- PILIH FOTO ---
@@ -311,6 +347,13 @@ export default function App() {
         return;
       }
 
+      const formatDate = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
       const productData = {
         nama: formData.nama.trim(),
         stok: parseFloat(formData.stok) || 0,
@@ -318,6 +361,10 @@ export default function App() {
         harga: parseHarga(formData.harga),
         lokasi: formData.lokasi.trim(),
         foto: formData.foto,
+        suplier_id: formData.suplier_id,
+        has_kadaluarsa: formData.has_kadaluarsa,
+        batch_number: formData.has_kadaluarsa ? formData.batch_number.trim() : null,
+        tanggal_kadaluarsa: formData.has_kadaluarsa ? formatDate(formData.tanggal_kadaluarsa) : null,
       };
 
       if (editingProduct) {
@@ -419,59 +466,94 @@ export default function App() {
     }
   };
 
+  // --- RENDER BADGE KADALUARSA ---
+  const getExpiryBadge = (item) => {
+    if (item.has_kadaluarsa !== 1 || !item.tanggal_kadaluarsa) return null;
+
+    const [y, m, d] = item.tanggal_kadaluarsa.split('-');
+    const expDate = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffTime = expDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#c0392b' }]}><Text style={styles.badgeKadaluarsaText}>Kadaluarsa</Text></View>;
+    } else if (diffDays <= 30) {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#f39c12' }]}><Text style={styles.badgeKadaluarsaText}>Hampir ({diffDays} hr)</Text></View>;
+    } else {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#27ae60' }]}><Text style={styles.badgeKadaluarsaText}>Aman ({diffDays} hr)</Text></View>;
+    }
+  };
+
   // --- RENDER ITEM ---
-  const renderItem = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.headerCard}>
-        <Text style={styles.namaBarang} numberOfLines={5}>
-          {item.nama}
-        </Text>
-        {item.lokasi ? (
-          <Text style={styles.lokasi}>📍 {item.lokasi}</Text>
+  const renderItem = ({ item }) => {
+    const suplier = suppliers.find(s => s.id === item.suplier_id);
+    
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerCard}>
+          <Text style={styles.namaBarang} numberOfLines={5}>
+            {item.nama}
+          </Text>
+          <View style={{flexDirection: 'column', alignItems: 'flex-end', gap: 4}}>
+            {item.lokasi ? (
+              <Text style={styles.lokasi}>📍 {item.lokasi}</Text>
+            ) : null}
+            {getExpiryBadge(item)}
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>Harga:</Text>
+          <Text style={styles.harga}>
+            Rp {item.harga ? item.harga.toLocaleString("id-ID") : 0}
+          </Text>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>Stok:</Text>
+          <Text style={styles.stok}>
+            {item.stok} {item.satuan}
+          </Text>
+        </View>
+
+        {suplier ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Suplier:</Text>
+            <Text style={styles.suplierText}>{suplier.nama}</Text>
+          </View>
         ) : null}
-      </View>
 
-      <View style={styles.row}>
-        <Text style={styles.label}>Harga:</Text>
-        <Text style={styles.harga}>
-          Rp {item.harga ? item.harga.toLocaleString("id-ID") : 0}
-        </Text>
-      </View>
+        {/* Action buttons */}
+        <View style={styles.actionRow}>
+          {item.foto ? (
+            <TouchableOpacity
+              style={[styles.btnAction, styles.btnFoto]}
+              onPress={() => openFotoModal(item)}
+            >
+              <Text style={[styles.btnActionText, { color: "#fff" }]}>📷 Foto</Text>
+            </TouchableOpacity>
+          ) : null}
 
-      <View style={styles.row}>
-        <Text style={styles.label}>Stok:</Text>
-        <Text style={styles.stok}>
-          {item.stok} {item.satuan}
-        </Text>
-      </View>
-
-      {/* Action buttons */}
-      <View style={styles.actionRow}>
-        {item.foto ? (
           <TouchableOpacity
-            style={[styles.btnAction, styles.btnFoto]}
-            onPress={() => openFotoModal(item)}
+            style={[styles.btnAction, styles.btnEdit]}
+            onPress={() => openEditForm(item)}
           >
-            <Text style={[styles.btnActionText, { color: "#fff" }]}>📷 Foto</Text>
+            <Text style={styles.btnActionText}>✏️ Edit</Text>
           </TouchableOpacity>
-        ) : null}
 
-        <TouchableOpacity
-          style={[styles.btnAction, styles.btnEdit]}
-          onPress={() => openEditForm(item)}
-        >
-          <Text style={styles.btnActionText}>✏️ Edit</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btnAction, styles.btnDelete]}
-          onPress={() => handleDeleteProduct(item)}
-        >
-          <Text style={[styles.btnActionText, { color: "#fff" }]}>🗑️ Hapus</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.btnAction, styles.btnDelete]}
+            onPress={() => handleDeleteProduct(item)}
+          >
+            <Text style={[styles.btnActionText, { color: "#fff" }]}>🗑️ Hapus</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -700,6 +782,94 @@ export default function App() {
                   selectionColor="#2c3e50"
                   keyboardType="numeric"
                 />
+
+                {/* Suplier Dropdown */}
+                <Text style={styles.formLabel}>Suplier</Text>
+                <TouchableOpacity
+                  style={[styles.formInput, styles.suplierPicker]}
+                  onPress={() => setSuplierPickerVisible(!suplierPickerVisible)}
+                >
+                  <Text style={formData.suplier_id ? styles.satuanPickerText : { color: '#bdc3c7' }}>
+                    {formData.suplier_id 
+                      ? suppliers.find(s => s.id === formData.suplier_id)?.nama || "Suplier tidak diketahui" 
+                      : "Pilih Suplier (Opsional)"}
+                  </Text>
+                  <Text style={styles.satuanPickerArrow}>
+                    {suplierPickerVisible ? "▲" : "▼"}
+                  </Text>
+                </TouchableOpacity>
+                {suplierPickerVisible && (
+                  <View style={styles.suplierDropdown}>
+                    <TouchableOpacity
+                      style={[styles.satuanOption, !formData.suplier_id && styles.satuanOptionActive]}
+                      onPress={() => {
+                        setFormData((prev) => ({ ...prev, suplier_id: null }));
+                        setSuplierPickerVisible(false);
+                      }}
+                    >
+                      <Text style={[styles.satuanOptionText, !formData.suplier_id && styles.satuanOptionTextActive]}>- Tidak Ada -</Text>
+                    </TouchableOpacity>
+                    {suppliers.map((s) => (
+                      <TouchableOpacity
+                        key={s.id.toString()}
+                        style={[styles.satuanOption, formData.suplier_id === s.id && styles.satuanOptionActive]}
+                        onPress={() => {
+                          setFormData((prev) => ({ ...prev, suplier_id: s.id }));
+                          setSuplierPickerVisible(false);
+                        }}
+                      >
+                        <Text style={[styles.satuanOptionText, formData.suplier_id === s.id && styles.satuanOptionTextActive]}>
+                          {s.nama}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Toggle Kadaluarsa */}
+                <View style={styles.toggleRow}>
+                  <Text style={styles.formLabelToggle}>Ada Kadaluarsa?</Text>
+                  <TouchableOpacity
+                     style={[styles.toggleBtn, formData.has_kadaluarsa ? styles.toggleActive : styles.toggleInactive]}
+                     onPress={() => setFormData(p => ({...p, has_kadaluarsa: !p.has_kadaluarsa}))}
+                  >
+                     <View style={[styles.toggleKnob, formData.has_kadaluarsa ? styles.knobActive : styles.knobInactive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Input Khusus Kadaluarsa */}
+                {formData.has_kadaluarsa && (
+                  <View style={styles.kadaluarsaContainer}>
+                    <Text style={styles.formLabel}>Nomor Batch</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formData.batch_number}
+                      onChangeText={(t) => setFormData((prev) => ({ ...prev, batch_number: t }))}
+                      placeholder="Contoh: B129380"
+                      placeholderTextColor="#95a5a6"
+                      selectionColor="#2c3e50"
+                    />
+
+                    <Text style={styles.formLabel}>Tanggal Kadaluarsa</Text>
+                    <TouchableOpacity
+                      style={styles.formInput}
+                      onPress={() => setShowDatePicker(true)}
+                    >
+                      <Text style={{ color: '#2c3e50' }}>{formData.tanggal_kadaluarsa.toLocaleDateString("id-ID")}</Text>
+                    </TouchableOpacity>
+                    {showDatePicker && (
+                      <DateTimePicker
+                        value={formData.tanggal_kadaluarsa}
+                        mode="date"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowDatePicker(false);
+                          if (selectedDate) setFormData(p => ({...p, tanggal_kadaluarsa: selectedDate}));
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
 
                 {/* Lokasi */}
                 <Text style={styles.formLabel}>Lokasi</Text>
@@ -1104,5 +1274,89 @@ const styles = StyleSheet.create({
   satuanOptionTextActive: {
     fontWeight: "bold",
     color: "#3498db",
+  },
+
+  suplierPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  suplierDropdown: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 10,
+    marginTop: 5,
+    marginBottom: 10,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    overflow: "hidden",
+    maxHeight: 200,
+  },
+  suplierText: {
+    fontSize: 12,
+    color: "#7f8c8d",
+    fontStyle: "italic",
+    marginLeft: 5,
+  },
+
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  formLabelToggle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#34495e",
+  },
+  toggleBtn: {
+    width: 50,
+    height: 28,
+    borderRadius: 15,
+    padding: 3,
+    justifyContent: "center",
+  },
+  toggleActive: { backgroundColor: "#27ae60" },
+  toggleInactive: { backgroundColor: "#bdc3c7" },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "white",
+  },
+  knobActive: { transform: [{ translateX: 22 }] },
+  knobInactive: { transform: [{ translateX: 0 }] },
+
+  kadaluarsaContainer: {
+    backgroundColor: "#fffdf0",
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#f1c40f",
+    borderLeftWidth: 4,
+  },
+  badgeKadaluarsa: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  badgeKadaluarsaText: {
+    fontSize: 10,
+    color: "white",
+    fontWeight: "bold",
   },
 });

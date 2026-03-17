@@ -19,6 +19,9 @@ const MAPPING = {
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
   'doc.text.fill': 'receipt-long',
+  'person.fill': 'person',
+  'car.fill': 'local-shipping',
+  'building.2.fill': 'store',
 } as IconMapping;
 
 /**

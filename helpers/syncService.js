@@ -27,9 +27,10 @@ function uuidv4() {
 // =============================================
 
 const SUPABASE_COLUMNS = {
-  products: ['uuid', 'nama', 'stok', 'satuan', 'harga', 'lokasi', 'foto_url', 'updated_at', 'is_deleted', 'id_lokal'],
+  products: ['uuid', 'nama', 'stok', 'satuan', 'harga', 'lokasi', 'foto_url', 'suplier_id', 'has_kadaluarsa', 'batch_number', 'tanggal_kadaluarsa', 'updated_at', 'is_deleted', 'id_lokal'],
   transactions: ['uuid', 'tanggal', 'total', 'detail', 'updated_at', 'is_deleted', 'id_lokal'],
   piutang: ['uuid', 'nama_pembeli', 'alamat', 'tanggal', 'total', 'detail', 'catatan', 'status', 'updated_at', 'is_deleted', 'id_lokal'],
+  suppliers: ['uuid', 'nama', 'kategori_produk', 'alamat', 'telepon', 'catatan', 'updated_at', 'is_deleted', 'id_lokal'],
 };
 
 /**
@@ -349,7 +350,7 @@ export async function performFullSync(db) {
   try {
     console.log("=== MEMULAI SINKRONISASI ===");
 
-    const tables = ["products", "transactions", "piutang"];
+    const tables = ["products", "transactions", "piutang", "suppliers"];
 
     // Cek apakah pertama kali sync (fresh start strategy)
     const firstSync = await isFirstSync(db);

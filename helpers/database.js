@@ -10,6 +10,7 @@ function uuidv4() {
 }
 
 const DB_NAME = "toko_mobile.db";
+let isDBReady = false;
 
 /**
  * Membuka koneksi database dan memastikan tabel siap (migrasi otomatis).
@@ -21,8 +22,15 @@ export async function openDB() {
       useNewConnection: true,
     });
 
-    // Pastikan tabel siap setiap kali buka
-    await initDB(db);
+    // Menghindari error "database is locked" saat ada koneksi konkuren
+    await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 10000;");
+
+    // Pastikan tabel disiapkan hanya 1x per sesi
+    if (!isDBReady) {
+      await initDB(db);
+      isDBReady = true;
+    }
+    
     return db;
   } catch (e) {
     console.log("Error openDB:", e);
@@ -78,10 +86,22 @@ async function initDB(db) {
         key TEXT PRIMARY KEY,
         value TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT UNIQUE,
+        nama TEXT NOT NULL,
+        kategori_produk TEXT,
+        alamat TEXT,
+        telepon TEXT,
+        catatan TEXT,
+        sync_status TEXT DEFAULT 'pending_insert',
+        updated_at TEXT
+      );
     `);
 
     // Migrasi: cek dan tambah kolom yang mungkin belum ada di database lama (yang di-import)
-    const tables = ['products', 'transactions', 'piutang'];
+    const tables = ['products', 'transactions', 'piutang', 'suppliers'];
     const newColumns = [
       { name: 'uuid', type: 'TEXT' },
       { name: 'sync_status', type: "TEXT DEFAULT 'pending_insert'" },
@@ -103,10 +123,14 @@ async function initDB(db) {
         }
       }
 
-      // Tambah kolom 'foto' untuk products jika belum ada
-      if (table === 'products' && !existingCols.includes('foto')) {
+      // Tambah kolom 'foto' dan kolom baru untuk products jika belum ada
+      if (table === 'products') {
         try {
-          await db.runAsync(`ALTER TABLE products ADD COLUMN foto TEXT`);
+          if (!existingCols.includes('foto')) await db.runAsync(`ALTER TABLE products ADD COLUMN foto TEXT`);
+          if (!existingCols.includes('suplier_id')) await db.runAsync(`ALTER TABLE products ADD COLUMN suplier_id INTEGER`);
+          if (!existingCols.includes('has_kadaluarsa')) await db.runAsync(`ALTER TABLE products ADD COLUMN has_kadaluarsa INTEGER DEFAULT 0`);
+          if (!existingCols.includes('batch_number')) await db.runAsync(`ALTER TABLE products ADD COLUMN batch_number TEXT`);
+          if (!existingCols.includes('tanggal_kadaluarsa')) await db.runAsync(`ALTER TABLE products ADD COLUMN tanggal_kadaluarsa TEXT`);
         } catch (e) { }
       }
 
@@ -131,6 +155,44 @@ async function initDB(db) {
 }
 
 // =============================================
+// CRUD SUPLIER
+// =============================================
+
+export async function getSuppliers(db) {
+  return await db.getAllAsync(
+    "SELECT * FROM suppliers WHERE sync_status != 'deleted' ORDER BY nama ASC"
+  );
+}
+
+export async function addSupplier(db, { nama, kategori_produk, alamat, telepon, catatan }) {
+  const newUuid = uuidv4();
+  const updated_at = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO suppliers (uuid, nama, kategori_produk, alamat, telepon, catatan, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending_insert', ?)`,
+    [newUuid, nama, kategori_produk || '', alamat || '', telepon || '', catatan || '', updated_at]
+  );
+}
+
+export async function updateSupplier(db, id, { nama, kategori_produk, alamat, telepon, catatan }) {
+  const updated_at = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE suppliers SET nama = ?, kategori_produk = ?, alamat = ?, telepon = ?, catatan = ?,
+     sync_status = CASE WHEN sync_status = 'pending_insert' THEN 'pending_insert' ELSE 'pending_update' END,
+     updated_at = ? WHERE id = ?`,
+    [nama, kategori_produk || '', alamat || '', telepon || '', catatan || '', updated_at, id]
+  );
+}
+
+export async function deleteSupplier(db, id) {
+  const updated_at = new Date().toISOString();
+  await db.runAsync(
+    "UPDATE suppliers SET sync_status = 'deleted', updated_at = ? WHERE id = ?",
+    [updated_at, id]
+  );
+}
+
+// =============================================
 // CRUD PRODUK
 // =============================================
 
@@ -146,26 +208,27 @@ export async function getProducts(db) {
 /**
  * Tambah produk baru.
  */
-export async function addProduct(db, { nama, stok, satuan, harga, lokasi, foto }) {
+export async function addProduct(db, { nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
   const newUuid = uuidv4();
   const updated_at = new Date().toISOString();
   await db.runAsync(
-    `INSERT INTO products (uuid, nama, stok, satuan, harga, lokasi, foto, sync_status, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_insert', ?)`,
-    [newUuid, nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, updated_at]
+    `INSERT INTO products (uuid, nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_insert', ?)`,
+    [newUuid, nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at]
   );
 }
 
 /**
  * Update produk yang sudah ada.
  */
-export async function updateProduct(db, id, { nama, stok, satuan, harga, lokasi, foto }) {
+export async function updateProduct(db, id, { nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
   const updated_at = new Date().toISOString();
   await db.runAsync(
     `UPDATE products SET nama = ?, stok = ?, satuan = ?, harga = ?, lokasi = ?, foto = ?,
+     suplier_id = ?, has_kadaluarsa = ?, batch_number = ?, tanggal_kadaluarsa = ?,
      sync_status = CASE WHEN sync_status = 'pending_insert' THEN 'pending_insert' ELSE 'pending_update' END,
      updated_at = ? WHERE id = ?`,
-    [nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, updated_at, id]
+    [nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at, id]
   );
 }
 
