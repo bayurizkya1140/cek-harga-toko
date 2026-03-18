@@ -485,7 +485,7 @@ export default function App() {
     if (diffDays < 0) {
       return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#c0392b' }]}><Text style={styles.badgeKadaluarsaText}>Kadaluarsa</Text></View>;
     } else if (diffDays <= 60) {
-      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#f39c12' }]}><Text style={styles.badgeKadaluarsaText}>Hampir ({diffDays} hr)</Text></View>;
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#f39c12' }]}><Text style={styles.badgeKadaluarsaText}>Hampir Kadaluarsa ({diffDays} hr)</Text></View>;
     } else {
       return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#27ae60' }]}><Text style={styles.badgeKadaluarsaText}>Aman ({diffDays} hr)</Text></View>;
     }
@@ -493,11 +493,6 @@ export default function App() {
 
   // --- RENDER ITEM ---
   const renderItem = ({ item }) => {
-    // Utamakan match berdasarkan UUID, fallback ke ID
-    const suplier = suppliers.find(s => 
-      (item.suplier_uuid && s.uuid === item.suplier_uuid) || 
-      (!item.suplier_uuid && s.id === item.suplier_id)
-    );
 
     return (
       <View style={styles.card}>
@@ -526,14 +521,6 @@ export default function App() {
             {item.stok} {item.satuan}
           </Text>
         </View>
-
-        {suplier ? (
-          <View style={styles.row}>
-            <Text style={styles.label}>Suplier:</Text>
-            <Text style={styles.suplierText}>{suplier.nama}</Text>
-          </View>
-        ) : null}
-
         {/* Action buttons */}
         <View style={styles.actionRow}>
           {item.foto ? (
@@ -822,8 +809,8 @@ export default function App() {
                         key={s.id.toString()}
                         style={[styles.satuanOption, formData.suplier_id === s.id && styles.satuanOptionActive]}
                         onPress={() => {
-                          setFormData((prev) => ({ 
-                            ...prev, 
+                          setFormData((prev) => ({
+                            ...prev,
                             suplier_id: s.id,
                             suplier_uuid: s.uuid
                           }));
