@@ -21,6 +21,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   addProduct,
   deleteProduct,
@@ -30,7 +31,6 @@ import {
   updateProduct,
 } from "../../helpers/database";
 import { performFullSync } from "../../helpers/syncService";
-import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -81,6 +81,7 @@ export default function App() {
     lokasi: "",
     foto: null,
     suplier_id: null,
+    suplier_uuid: null,
     has_kadaluarsa: false,
     batch_number: "",
     tanggal_kadaluarsa: new Date(),
@@ -233,6 +234,7 @@ export default function App() {
       lokasi: "",
       foto: null,
       suplier_id: null,
+      suplier_uuid: null,
       has_kadaluarsa: false,
       batch_number: "",
       tanggal_kadaluarsa: new Date(),
@@ -246,8 +248,8 @@ export default function App() {
     setEditingProduct(product);
     let parsedDate = new Date();
     if (product.tanggal_kadaluarsa) {
-       const [year, month, day] = product.tanggal_kadaluarsa.split('-');
-       parsedDate = new Date(year, month - 1, day);
+      const [year, month, day] = product.tanggal_kadaluarsa.split('-');
+      parsedDate = new Date(year, month - 1, day);
     }
     setFormData({
       nama: product.nama || "",
@@ -257,6 +259,7 @@ export default function App() {
       lokasi: product.lokasi || "",
       foto: product.foto || null,
       suplier_id: product.suplier_id || null,
+      suplier_uuid: product.suplier_uuid || null,
       has_kadaluarsa: product.has_kadaluarsa === 1,
       batch_number: product.batch_number || "",
       tanggal_kadaluarsa: parsedDate,
@@ -362,6 +365,7 @@ export default function App() {
         lokasi: formData.lokasi.trim(),
         foto: formData.foto,
         suplier_id: formData.suplier_id,
+        suplier_uuid: formData.suplier_uuid,
         has_kadaluarsa: formData.has_kadaluarsa,
         batch_number: formData.has_kadaluarsa ? formData.batch_number.trim() : null,
         tanggal_kadaluarsa: formData.has_kadaluarsa ? formatDate(formData.tanggal_kadaluarsa) : null,
@@ -480,7 +484,7 @@ export default function App() {
 
     if (diffDays < 0) {
       return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#c0392b' }]}><Text style={styles.badgeKadaluarsaText}>Kadaluarsa</Text></View>;
-    } else if (diffDays <= 30) {
+    } else if (diffDays <= 60) {
       return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#f39c12' }]}><Text style={styles.badgeKadaluarsaText}>Hampir ({diffDays} hr)</Text></View>;
     } else {
       return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#27ae60' }]}><Text style={styles.badgeKadaluarsaText}>Aman ({diffDays} hr)</Text></View>;
@@ -489,15 +493,19 @@ export default function App() {
 
   // --- RENDER ITEM ---
   const renderItem = ({ item }) => {
-    const suplier = suppliers.find(s => s.id === item.suplier_id);
-    
+    // Utamakan match berdasarkan UUID, fallback ke ID
+    const suplier = suppliers.find(s => 
+      (item.suplier_uuid && s.uuid === item.suplier_uuid) || 
+      (!item.suplier_uuid && s.id === item.suplier_id)
+    );
+
     return (
       <View style={styles.card}>
         <View style={styles.headerCard}>
           <Text style={styles.namaBarang} numberOfLines={5}>
             {item.nama}
           </Text>
-          <View style={{flexDirection: 'column', alignItems: 'flex-end', gap: 4}}>
+          <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
             {item.lokasi ? (
               <Text style={styles.lokasi}>📍 {item.lokasi}</Text>
             ) : null}
@@ -790,8 +798,8 @@ export default function App() {
                   onPress={() => setSuplierPickerVisible(!suplierPickerVisible)}
                 >
                   <Text style={formData.suplier_id ? styles.satuanPickerText : { color: '#bdc3c7' }}>
-                    {formData.suplier_id 
-                      ? suppliers.find(s => s.id === formData.suplier_id)?.nama || "Suplier tidak diketahui" 
+                    {formData.suplier_id
+                      ? suppliers.find(s => s.id === formData.suplier_id)?.nama || "Suplier tidak diketahui"
                       : "Pilih Suplier (Opsional)"}
                   </Text>
                   <Text style={styles.satuanPickerArrow}>
@@ -814,7 +822,11 @@ export default function App() {
                         key={s.id.toString()}
                         style={[styles.satuanOption, formData.suplier_id === s.id && styles.satuanOptionActive]}
                         onPress={() => {
-                          setFormData((prev) => ({ ...prev, suplier_id: s.id }));
+                          setFormData((prev) => ({ 
+                            ...prev, 
+                            suplier_id: s.id,
+                            suplier_uuid: s.uuid
+                          }));
                           setSuplierPickerVisible(false);
                         }}
                       >
@@ -830,10 +842,10 @@ export default function App() {
                 <View style={styles.toggleRow}>
                   <Text style={styles.formLabelToggle}>Ada Kadaluarsa?</Text>
                   <TouchableOpacity
-                     style={[styles.toggleBtn, formData.has_kadaluarsa ? styles.toggleActive : styles.toggleInactive]}
-                     onPress={() => setFormData(p => ({...p, has_kadaluarsa: !p.has_kadaluarsa}))}
+                    style={[styles.toggleBtn, formData.has_kadaluarsa ? styles.toggleActive : styles.toggleInactive]}
+                    onPress={() => setFormData(p => ({ ...p, has_kadaluarsa: !p.has_kadaluarsa }))}
                   >
-                     <View style={[styles.toggleKnob, formData.has_kadaluarsa ? styles.knobActive : styles.knobInactive]} />
+                    <View style={[styles.toggleKnob, formData.has_kadaluarsa ? styles.knobActive : styles.knobInactive]} />
                   </TouchableOpacity>
                 </View>
 
@@ -864,7 +876,7 @@ export default function App() {
                         display="default"
                         onChange={(event, selectedDate) => {
                           setShowDatePicker(false);
-                          if (selectedDate) setFormData(p => ({...p, tanggal_kadaluarsa: selectedDate}));
+                          if (selectedDate) setFormData(p => ({ ...p, tanggal_kadaluarsa: selectedDate }));
                         }}
                       />
                     )}

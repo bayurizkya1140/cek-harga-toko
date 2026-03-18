@@ -30,7 +30,7 @@ export async function openDB() {
       await initDB(db);
       isDBReady = true;
     }
-    
+
     return db;
   } catch (e) {
     console.log("Error openDB:", e);
@@ -54,6 +54,7 @@ async function initDB(db) {
         harga INTEGER DEFAULT 0,
         lokasi TEXT,
         foto TEXT,
+        suplier_uuid TEXT,
         sync_status TEXT DEFAULT 'pending_insert',
         updated_at TEXT
       );
@@ -128,6 +129,7 @@ async function initDB(db) {
         try {
           if (!existingCols.includes('foto')) await db.runAsync(`ALTER TABLE products ADD COLUMN foto TEXT`);
           if (!existingCols.includes('suplier_id')) await db.runAsync(`ALTER TABLE products ADD COLUMN suplier_id INTEGER`);
+          if (!existingCols.includes('suplier_uuid')) await db.runAsync(`ALTER TABLE products ADD COLUMN suplier_uuid TEXT`);
           if (!existingCols.includes('has_kadaluarsa')) await db.runAsync(`ALTER TABLE products ADD COLUMN has_kadaluarsa INTEGER DEFAULT 0`);
           if (!existingCols.includes('batch_number')) await db.runAsync(`ALTER TABLE products ADD COLUMN batch_number TEXT`);
           if (!existingCols.includes('tanggal_kadaluarsa')) await db.runAsync(`ALTER TABLE products ADD COLUMN tanggal_kadaluarsa TEXT`);
@@ -208,27 +210,27 @@ export async function getProducts(db) {
 /**
  * Tambah produk baru.
  */
-export async function addProduct(db, { nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
+export async function addProduct(db, { nama, stok, satuan, harga, lokasi, foto, suplier_id, suplier_uuid, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
   const newUuid = uuidv4();
   const updated_at = new Date().toISOString();
   await db.runAsync(
-    `INSERT INTO products (uuid, nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa, sync_status, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_insert', ?)`,
-    [newUuid, nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at]
+    `INSERT INTO products (uuid, nama, stok, satuan, harga, lokasi, foto, suplier_id, suplier_uuid, has_kadaluarsa, batch_number, tanggal_kadaluarsa, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_insert', ?)`,
+    [newUuid, nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, suplier_uuid || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at]
   );
 }
 
 /**
  * Update produk yang sudah ada.
  */
-export async function updateProduct(db, id, { nama, stok, satuan, harga, lokasi, foto, suplier_id, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
+export async function updateProduct(db, id, { nama, stok, satuan, harga, lokasi, foto, suplier_id, suplier_uuid, has_kadaluarsa, batch_number, tanggal_kadaluarsa }) {
   const updated_at = new Date().toISOString();
   await db.runAsync(
     `UPDATE products SET nama = ?, stok = ?, satuan = ?, harga = ?, lokasi = ?, foto = ?,
-     suplier_id = ?, has_kadaluarsa = ?, batch_number = ?, tanggal_kadaluarsa = ?,
+     suplier_id = ?, suplier_uuid = ?, has_kadaluarsa = ?, batch_number = ?, tanggal_kadaluarsa = ?,
      sync_status = CASE WHEN sync_status = 'pending_insert' THEN 'pending_insert' ELSE 'pending_update' END,
      updated_at = ? WHERE id = ?`,
-    [nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at, id]
+    [nama, stok || 0, satuan || '', harga || 0, lokasi || '', foto || null, suplier_id || null, suplier_uuid || null, has_kadaluarsa ? 1 : 0, batch_number || null, tanggal_kadaluarsa || null, updated_at, id]
   );
 }
 
@@ -378,6 +380,39 @@ export async function upsertLokalFromCloud(db, table, data) {
     );
   }
 }
+
+/**
+ * Memperbaiki relasi produk yang belum memiliki suplier_uuid tapi memiliki suplier_id.
+ */
+export async function repairProductRelations(db) {
+  try {
+    // Ambil produk yang suplier_uuid-nya kosong tapi suplier_id-nya terisi
+    const productsToFix = await db.getAllAsync(
+      "SELECT id, suplier_id FROM products WHERE (suplier_uuid IS NULL OR suplier_uuid = '') AND suplier_id IS NOT NULL"
+    );
+
+    if (productsToFix.length === 0) return;
+
+    for (const p of productsToFix) {
+      // Cari UUID suplier berdasarkan ID-nya
+      const s = await db.getFirstAsync(
+        "SELECT uuid FROM suppliers WHERE id = ?",
+        [p.suplier_id]
+      );
+      
+      if (s && s.uuid) {
+        await db.runAsync(
+          "UPDATE products SET suplier_uuid = ? WHERE id = ?",
+          [s.uuid, p.id]
+        );
+      }
+    }
+    console.log(`[REPAIR] ${productsToFix.length} relasi produk diperbaiki.`);
+  } catch (e) {
+    console.error("Error repairProductRelations:", e);
+  }
+}
+
 
 /**
  * Clear semua data dari tabel tertentu (untuk fresh start sync).

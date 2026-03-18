@@ -4,6 +4,7 @@ import {
   getLokalRawData,
   hardDeleteLokal,
   isFirstSync,
+  repairProductRelations,
   setLastSyncTime,
   updateSyncStatusLokal,
   updateUUIDLokal,
@@ -27,7 +28,7 @@ function uuidv4() {
 // =============================================
 
 const SUPABASE_COLUMNS = {
-  products: ['uuid', 'nama', 'stok', 'satuan', 'harga', 'lokasi', 'foto_url', 'suplier_id', 'has_kadaluarsa', 'batch_number', 'tanggal_kadaluarsa', 'updated_at', 'is_deleted', 'id_lokal'],
+  products: ['uuid', 'nama', 'stok', 'satuan', 'harga', 'lokasi', 'foto_url', 'suplier_uuid', 'has_kadaluarsa', 'batch_number', 'tanggal_kadaluarsa', 'updated_at', 'is_deleted', 'id_lokal'],
   transactions: ['uuid', 'tanggal', 'total', 'detail', 'updated_at', 'is_deleted', 'id_lokal'],
   piutang: ['uuid', 'nama_pembeli', 'alamat', 'tanggal', 'total', 'detail', 'catatan', 'status', 'updated_at', 'is_deleted', 'id_lokal'],
   suppliers: ['uuid', 'nama', 'kategori_produk', 'alamat', 'telepon', 'catatan', 'updated_at', 'is_deleted', 'id_lokal'],
@@ -349,6 +350,9 @@ async function pullSyncTable(db, tableName) {
 export async function performFullSync(db) {
   try {
     console.log("=== MEMULAI SINKRONISASI ===");
+    
+    // Perbaiki relasi produk sebelum sync dimulai
+    await repairProductRelations(db);
 
     const tables = ["products", "transactions", "piutang", "suppliers"];
 

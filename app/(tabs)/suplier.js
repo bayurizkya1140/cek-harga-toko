@@ -83,7 +83,7 @@ export default function SuplierTab() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   };
@@ -125,7 +125,7 @@ export default function SuplierTab() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
       setSyncing(false);
       setTimeout(() => setSyncStatus("idle"), 3000);
@@ -221,7 +221,7 @@ export default function SuplierTab() {
       if (database) {
         try {
           await database.closeAsync();
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   };
@@ -252,7 +252,7 @@ export default function SuplierTab() {
               if (database) {
                 try {
                   await database.closeAsync();
-                } catch (e) {}
+                } catch (e) { }
               }
             }
           },
