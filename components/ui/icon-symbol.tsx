@@ -22,6 +22,7 @@ const MAPPING = {
   'person.fill': 'person',
   'car.fill': 'local-shipping',
   'building.2.fill': 'store',
+  'exclamationmark.triangle.fill': 'warning',
 } as IconMapping;
 
 /**

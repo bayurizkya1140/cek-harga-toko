@@ -537,7 +537,7 @@ export default function PiutangScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>💰 Daftar Piutang</Text>
+        <Text style={styles.title}>Daftar Piutang</Text>
         <Text
           style={[
             styles.headerSubtitle,
@@ -552,7 +552,7 @@ export default function PiutangScreen() {
               ? "✅ Tersinkronisasi"
               : syncStatus === "error"
                 ? "❌ Gagal Sync"
-                : "Kelola piutang toko Anda"}
+                : "Kelola piutang"}
         </Text>
         <TouchableOpacity
           style={[styles.btnSync, syncing && styles.btnSyncDisabled]}
@@ -1012,20 +1012,21 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: "#2c3e50",
     padding: 12,
-    paddingTop: Platform.OS === "android" ? 35 : 12,
+    paddingTop: Platform.OS === "android" ? 45 : 12,
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
     alignItems: "center",
   },
   title: {
     color: "white",
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
   },
   headerSubtitle: {
     color: "#95a5a6",
     fontSize: 11,
     marginTop: 2,
+    marginBottom: 5,
     textAlign: "center",
   },
   btnSync: {
@@ -1045,7 +1046,7 @@ const styles = StyleSheet.create({
   btnSyncText: {
     color: "white",
     fontWeight: "bold",
-    fontSize: 11,
+    fontSize: 12,
   },
   summaryContainer: {
     flexDirection: "row",
