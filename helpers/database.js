@@ -11,31 +11,49 @@ function uuidv4() {
 
 const DB_NAME = "toko_mobile.db";
 let isDBReady = false;
+let dbInstance = null;
+let initPromise = null;
 
 /**
- * Membuka koneksi database dan memastikan tabel siap (migrasi otomatis).
- * Caller HARUS memanggil closeAsync() setelah selesai.
+ * Membuka koneksi database SINGLETON dan memastikan tabel siap (migrasi otomatis).
+ * Menggunakan satu koneksi bersama untuk seluruh aplikasi.
+ * Caller TIDAK PERLU memanggil closeAsync().
  */
 export async function openDB() {
-  try {
-    const db = await SQLite.openDatabaseAsync(DB_NAME, {
-      useNewConnection: true,
-    });
-
-    // Menghindari error "database is locked" saat ada koneksi konkuren
-    await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 10000;");
-
-    // Pastikan tabel disiapkan hanya 1x per sesi
-    if (!isDBReady) {
-      await initDB(db);
-      isDBReady = true;
-    }
-
-    return db;
-  } catch (e) {
-    console.log("Error openDB:", e);
-    return null;
+  // Jika sudah ada koneksi yang siap, langsung kembalikan
+  if (dbInstance && isDBReady) {
+    return dbInstance;
   }
+
+  // Jika sedang dalam proses inisialisasi, tunggu
+  if (initPromise) {
+    await initPromise;
+    return dbInstance;
+  }
+
+  // Mulai proses inisialisasi baru
+  initPromise = (async () => {
+    try {
+      // Buka koneksi tunggal (TANPA useNewConnection agar menjadi singleton)
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+
+      await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 10000;");
+
+      await initDB(db);
+
+      dbInstance = db;
+      isDBReady = true;
+    } catch (e) {
+      console.log("Error openDB:", e);
+      dbInstance = null;
+      isDBReady = false;
+    }
+  })();
+
+  await initPromise;
+  initPromise = null;
+
+  return dbInstance;
 }
 
 /**
@@ -199,12 +217,34 @@ export async function deleteSupplier(db, id) {
 // =============================================
 
 /**
- * Ambil semua produk yang belum dihapus (soft-delete).
+ * Ambil semua produk TANPA kolom foto (hemat memori).
+ * Gunakan ini untuk daftar produk, monitoring, badge count, dll.
  */
 export async function getProducts(db) {
   return await db.getAllAsync(
+    "SELECT id, uuid, nama, stok, satuan, harga, lokasi, suplier_id, suplier_uuid, has_kadaluarsa, batch_number, tanggal_kadaluarsa, sync_status, updated_at, CASE WHEN foto IS NOT NULL AND foto != '' THEN 1 ELSE 0 END AS has_foto FROM products WHERE sync_status != 'deleted' ORDER BY nama ASC"
+  );
+}
+
+/**
+ * Ambil semua produk DENGAN kolom foto (untuk kebutuhan sync / export).
+ * JANGAN gunakan untuk menampilkan daftar — bisa menyebabkan OutOfMemory.
+ */
+export async function getProductsWithFoto(db) {
+  return await db.getAllAsync(
     "SELECT * FROM products WHERE sync_status != 'deleted' ORDER BY nama ASC"
   );
+}
+
+/**
+ * Ambil foto satu produk berdasarkan ID.
+ */
+export async function getProductFoto(db, id) {
+  const result = await db.getFirstAsync(
+    "SELECT foto FROM products WHERE id = ?",
+    [id]
+  );
+  return result ? result.foto : null;
 }
 
 /**
@@ -399,7 +439,7 @@ export async function repairProductRelations(db) {
         "SELECT uuid FROM suppliers WHERE id = ?",
         [p.suplier_id]
       );
-      
+
       if (s && s.uuid) {
         await db.runAsync(
           "UPDATE products SET suplier_uuid = ? WHERE id = ?",

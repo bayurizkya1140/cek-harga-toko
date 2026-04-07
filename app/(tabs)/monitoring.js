@@ -105,10 +105,6 @@ export default function MonitoringScreen() {
       setLoading(false);
       setDataProducts([]);
       setFilterData([]);
-    } finally {
-      if (database) {
-        try { await database.closeAsync(); } catch (e) { }
-      }
     }
   };
 
@@ -170,11 +166,6 @@ export default function MonitoringScreen() {
       setSyncStatus("error");
       Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
     } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
       setSyncing(false);
       setTimeout(() => setSyncStatus("idle"), 3000);
     }

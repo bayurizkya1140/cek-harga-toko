@@ -17,9 +17,8 @@ export default function TabLayout() {
   }, [pathname]);
 
   const checkBadgeCount = async () => {
-    let database = null;
     try {
-      database = await openDB();
+      const database = await openDB();
       if (!database) return;
 
       const allProducts = await getProducts(database);
@@ -43,10 +42,6 @@ export default function TabLayout() {
       setBadgeCount(count);
     } catch (e) {
       console.log('Error checking badge count:', e);
-    } finally {
-      if (database) {
-        try { await database.closeAsync(); } catch (e) {}
-      }
     }
   };
 

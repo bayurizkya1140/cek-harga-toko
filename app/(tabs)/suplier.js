@@ -79,12 +79,6 @@ export default function SuplierTab() {
       setLoading(false);
       setDataSuplier([]);
       setFilterData([]);
-    } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
     }
   };
 
@@ -122,11 +116,6 @@ export default function SuplierTab() {
       setSyncStatus("error");
       Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
     } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
       setSyncing(false);
       setTimeout(() => setSyncStatus("idle"), 3000);
     }
@@ -217,12 +206,6 @@ export default function SuplierTab() {
     } catch (err) {
       console.log("Error save suplier:", err);
       Alert.alert("Error", "Gagal menyimpan suplier: " + err.message);
-    } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
     }
   };
 
@@ -248,12 +231,6 @@ export default function SuplierTab() {
             } catch (err) {
               console.log("Error delete suplier:", err);
               Alert.alert("Error", "Gagal menghapus suplier");
-            } finally {
-              if (database) {
-                try {
-                  await database.closeAsync();
-                } catch (e) { }
-              }
             }
           },
         },

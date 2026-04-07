@@ -132,10 +132,6 @@ export default function PiutangScreen() {
       setLoading(false);
       setDataPiutang([]);
       setFilterData([]);
-    } finally {
-      if (database) {
-        try { await database.closeAsync(); } catch (e) { }
-      }
     }
   };
 
@@ -199,11 +195,6 @@ export default function PiutangScreen() {
       setSyncStatus("error");
       Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
     } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
       setSyncing(false);
       // Reset status setelah 3 detik
       setTimeout(() => setSyncStatus("idle"), 3000);
@@ -246,8 +237,6 @@ export default function PiutangScreen() {
       }
     } catch (e) {
       console.log("Error loading products for picker:", e);
-    } finally {
-      if (database) await database.closeAsync();
     }
 
     setFormModalVisible(true);
@@ -338,8 +327,6 @@ export default function PiutangScreen() {
       loadAll(activeTab);
     } catch (e) {
       Alert.alert("Error", "Gagal menyimpan piutang: " + e.message);
-    } finally {
-      if (database) await database.closeAsync();
     }
   };
 
@@ -364,8 +351,6 @@ export default function PiutangScreen() {
               }
             } catch (e) {
               Alert.alert("Error", "Gagal melunasi piutang: " + e.message);
-            } finally {
-              if (database) await database.closeAsync();
             }
           }
         }
@@ -394,8 +379,6 @@ export default function PiutangScreen() {
               }
             } catch (e) {
               Alert.alert("Error", "Gagal menghapus piutang: " + e.message);
-            } finally {
-              if (database) await database.closeAsync();
             }
           }
         }

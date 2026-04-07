@@ -25,6 +25,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   addProduct,
   deleteProduct,
+  getProductFoto,
   getProducts,
   getSuppliers,
   openDB,
@@ -101,10 +102,9 @@ export default function App() {
   );
 
   const loadData = async () => {
-    let database = null;
     try {
       setLoading(true);
-      database = await openDB();
+      const database = await openDB();
 
       if (!database) {
         setLoading(false);
@@ -132,24 +132,17 @@ export default function App() {
       setLoading(false);
       setDataProduk([]);
       setFilterData([]);
-    } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
     }
   };
 
   // --- SYNC ---
   const handleSync = async () => {
     if (syncing) return;
-    let database = null;
     try {
       setSyncing(true);
       setSyncStatus("syncing");
 
-      database = await openDB();
+      const database = await openDB();
       if (!database) {
         Alert.alert("Error", "Gagal membuka database");
         setSyncStatus("error");
@@ -181,11 +174,6 @@ export default function App() {
       setSyncStatus("error");
       Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
     } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
       setSyncing(false);
       // Reset status setelah 3 detik
       setTimeout(() => setSyncStatus("idle"), 3000);
@@ -212,10 +200,20 @@ export default function App() {
   };
 
   // --- FOTO PREVIEW MODAL ---
-  const openFotoModal = (product) => {
-    setSelectedProduct(product);
+  const openFotoModal = async (product) => {
+    setSelectedProduct({ ...product, foto: null });
     setImageLoading(true);
     setFotoModalVisible(true);
+    // Load foto on-demand
+    try {
+      const database = await openDB();
+      if (database) {
+        const foto = await getProductFoto(database, product.id);
+        setSelectedProduct({ ...product, foto });
+      }
+    } catch (e) {
+      console.log("Error loading foto:", e);
+    }
   };
 
   const closeFotoModal = () => {
@@ -244,12 +242,22 @@ export default function App() {
     setFormModalVisible(true);
   };
 
-  const openEditForm = (product) => {
+  const openEditForm = async (product) => {
     setEditingProduct(product);
     let parsedDate = new Date();
     if (product.tanggal_kadaluarsa) {
       const [year, month, day] = product.tanggal_kadaluarsa.split('-');
       parsedDate = new Date(year, month - 1, day);
+    }
+    // Load foto on-demand untuk edit
+    let foto = null;
+    try {
+      const database = await openDB();
+      if (database) {
+        foto = await getProductFoto(database, product.id);
+      }
+    } catch (e) {
+      console.log("Error loading foto for edit:", e);
     }
     setFormData({
       nama: product.nama || "",
@@ -257,7 +265,7 @@ export default function App() {
       satuan: product.satuan || "pcs",
       harga: product.harga ? formatRibuan(product.harga) : "0",
       lokasi: product.lokasi || "",
-      foto: product.foto || null,
+      foto: foto,
       suplier_id: product.suplier_id || null,
       suplier_uuid: product.suplier_uuid || null,
       has_kadaluarsa: product.has_kadaluarsa === 1,
@@ -342,9 +350,8 @@ export default function App() {
       return;
     }
 
-    let database = null;
     try {
-      database = await openDB();
+      const database = await openDB();
       if (!database) {
         Alert.alert("Error", "Gagal membuka database");
         return;
@@ -392,12 +399,6 @@ export default function App() {
     } catch (err) {
       console.log("Error save product:", err);
       Alert.alert("Error", "Gagal menyimpan produk: " + err.message);
-    } finally {
-      if (database) {
-        try {
-          await database.closeAsync();
-        } catch (e) { }
-      }
     }
   };
 
@@ -412,9 +413,8 @@ export default function App() {
           text: "Hapus",
           style: "destructive",
           onPress: async () => {
-            let database = null;
             try {
-              database = await openDB();
+              const database = await openDB();
               if (!database) return;
 
               await deleteProduct(database, product.id);
@@ -430,12 +430,6 @@ export default function App() {
             } catch (err) {
               console.log("Error delete:", err);
               Alert.alert("Error", "Gagal menghapus produk");
-            } finally {
-              if (database) {
-                try {
-                  await database.closeAsync();
-                } catch (e) { }
-              }
             }
           },
         },
@@ -523,7 +517,7 @@ export default function App() {
         </View>
         {/* Action buttons */}
         <View style={styles.actionRow}>
-          {item.foto ? (
+          {item.has_foto ? (
             <TouchableOpacity
               style={[styles.btnAction, styles.btnFoto]}
               onPress={() => openFotoModal(item)}
