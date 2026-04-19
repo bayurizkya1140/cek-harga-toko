@@ -79,6 +79,9 @@ export default function App() {
     stok: "",
     satuan: "pcs",
     harga: "",
+    hargaMode: "manual",
+    hpp: "",
+    margin: "",
     lokasi: "",
     foto: null,
     suplier_id: null,
@@ -229,6 +232,9 @@ export default function App() {
       stok: "",
       satuan: "pcs",
       harga: "",
+      hargaMode: "manual",
+      hpp: "",
+      margin: "",
       lokasi: "",
       foto: null,
       suplier_id: null,
@@ -264,6 +270,9 @@ export default function App() {
       stok: product.stok?.toString() || "0",
       satuan: product.satuan || "pcs",
       harga: product.harga ? formatRibuan(product.harga) : "0",
+      hargaMode: "manual",
+      hpp: "",
+      margin: "",
       lokasi: product.lokasi || "",
       foto: foto,
       suplier_id: product.suplier_id || null,
@@ -755,22 +764,98 @@ export default function App() {
                   </View>
                 </View>
 
-                {/* Harga */}
-                <Text style={styles.formLabel}>Harga (Rp)</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formData.harga}
-                  onChangeText={(t) => {
-                    // Hanya terima angka, auto format dengan titik ribuan
-                    const angkaMurni = t.replace(/\D/g, "");
-                    const formatted = formatRibuan(angkaMurni);
-                    setFormData((prev) => ({ ...prev, harga: formatted }));
-                  }}
-                  placeholder="0"
-                  placeholderTextColor="#95a5a6"
-                  selectionColor="#2c3e50"
-                  keyboardType="numeric"
-                />
+                {/* Toggle Mode Harga */}
+                <View style={styles.toggleRow}>
+                  <Text style={styles.formLabelToggle}>Mode Harga Jual (Kalkulator HPP)</Text>
+                  <TouchableOpacity
+                    style={[styles.toggleBtn, formData.hargaMode === 'hpp' ? styles.toggleActive : styles.toggleInactive]}
+                    onPress={() => setFormData(p => ({ ...p, hargaMode: p.hargaMode === 'hpp' ? 'manual' : 'hpp' }))}
+                  >
+                    <View style={[styles.toggleKnob, formData.hargaMode === 'hpp' ? styles.knobActive : styles.knobInactive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {formData.hargaMode === 'manual' ? (
+                  <>
+                    <Text style={[styles.formLabel, { marginTop: 0 }]}>Harga Jual (Rp)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formData.harga}
+                      onChangeText={(t) => {
+                        const angkaMurni = t.replace(/\D/g, "");
+                        const formatted = formatRibuan(angkaMurni);
+                        setFormData((prev) => ({ ...prev, harga: formatted }));
+                      }}
+                      placeholder="0"
+                      placeholderTextColor="#95a5a6"
+                      selectionColor="#2c3e50"
+                      keyboardType="numeric"
+                    />
+                  </>
+                ) : (
+                  <View style={styles.hppContainer}>
+                    <View style={styles.hppHeader}>
+                      <Text style={styles.kadaluarsaHeaderIcon}>💰</Text>
+                      <Text style={styles.hppHeaderTitle}>Kalkulasi Harga Jual</Text>
+                    </View>
+                    <View style={styles.kadaluarsaFieldsRow}>
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.hppFieldLabel}>Harga Modal (Rp)</Text>
+                        <TextInput
+                          style={styles.hppInput}
+                          value={formData.hpp}
+                          onChangeText={(t) => {
+                            const angkaMurni = t.replace(/\D/g, "");
+                            const hppVal = parseInt(angkaMurni) || 0;
+                            const marginVal = parseFloat(formData.margin) || 0;
+                            const hJual = Math.round(hppVal + (hppVal * marginVal / 100));
+
+                            setFormData(prev => ({
+                              ...prev,
+                              hpp: formatRibuan(angkaMurni),
+                              harga: formatRibuan(hJual)
+                            }));
+                          }}
+                          placeholder="0"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.hppFieldLabel}>Margin (%)</Text>
+                        <TextInput
+                          style={styles.hppInput}
+                          value={formData.margin}
+                          onChangeText={(t) => {
+                            const marginStr = t.replace(/[^0-9.]/g, "");
+                            const marginVal = parseFloat(marginStr) || 0;
+                            const hppVal = parseHarga(formData.hpp);
+                            const hJual = Math.round(hppVal + (hppVal * marginVal / 100));
+                            
+                            setFormData(prev => ({
+                              ...prev,
+                              margin: marginStr,
+                              harga: formatRibuan(hJual)
+                            }));
+                          }}
+                          placeholder="10"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                    <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+                      <Text style={styles.hppFieldLabel}>Harga Jual Dihitung (Rp)</Text>
+                      <TextInput
+                        style={[styles.hppInput, { backgroundColor: '#e9ecef', color: '#7f8c8d' }]}
+                        value={formData.harga}
+                        editable={false}
+                      />
+                    </View>
+                  </View>
+                )}
 
                 {/* Suplier Dropdown */}
                 <Text style={styles.formLabel}>Suplier</Text>
@@ -833,23 +918,40 @@ export default function App() {
                 {/* Input Khusus Kadaluarsa */}
                 {formData.has_kadaluarsa && (
                   <View style={styles.kadaluarsaContainer}>
-                    <Text style={styles.formLabel}>Nomor Batch</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      value={formData.batch_number}
-                      onChangeText={(t) => setFormData((prev) => ({ ...prev, batch_number: t }))}
-                      placeholder="Contoh: B129380"
-                      placeholderTextColor="#95a5a6"
-                      selectionColor="#2c3e50"
-                    />
+                    {/* Header Card */}
+                    <View style={styles.kadaluarsaHeader}>
+                      <Text style={styles.kadaluarsaHeaderIcon}>📋</Text>
+                      <Text style={styles.kadaluarsaHeaderTitle}>Informasi Kadaluarsa</Text>
+                    </View>
 
-                    <Text style={styles.formLabel}>Tanggal Kadaluarsa</Text>
-                    <TouchableOpacity
-                      style={styles.formInput}
-                      onPress={() => setShowDatePicker(true)}
-                    >
-                      <Text style={{ color: '#2c3e50' }}>{formData.tanggal_kadaluarsa.toLocaleDateString("id-ID")}</Text>
-                    </TouchableOpacity>
+                    {/* Fields Row */}
+                    <View style={styles.kadaluarsaFieldsRow}>
+                      {/* Nomor Batch */}
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.kadaluarsaFieldLabel}>Nomor Batch</Text>
+                        <TextInput
+                          style={styles.kadaluarsaInput}
+                          value={formData.batch_number}
+                          onChangeText={(t) => setFormData((prev) => ({ ...prev, batch_number: t }))}
+                          placeholder="B129380"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                        />
+                      </View>
+
+                      {/* Tanggal Kadaluarsa */}
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.kadaluarsaFieldLabel}>Tgl. Kadaluarsa</Text>
+                        <TouchableOpacity
+                          style={styles.kadaluarsaDateBtn}
+                          onPress={() => setShowDatePicker(true)}
+                        >
+                          <Text style={styles.kadaluarsaDateIcon}>📅</Text>
+                          <Text style={styles.kadaluarsaDateText}>{formData.tanggal_kadaluarsa.toLocaleDateString("id-ID")}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
                     {showDatePicker && (
                       <DateTimePicker
                         value={formData.tanggal_kadaluarsa}
@@ -1349,13 +1451,79 @@ const styles = StyleSheet.create({
   knobInactive: { transform: [{ translateX: 0 }] },
 
   kadaluarsaContainer: {
-    backgroundColor: "#fffdf0",
-    padding: 15,
+    backgroundColor: "#f0faf4",
+    borderRadius: 14,
+    marginTop: 12,
+    borderWidth: 1.2,
+    borderColor: "#b8e6cc",
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#27ae60",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  kadaluarsaHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#27ae60",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  kadaluarsaHeaderIcon: {
+    fontSize: 16,
+  },
+  kadaluarsaHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#ffffff",
+    letterSpacing: 0.3,
+  },
+  kadaluarsaFieldsRow: {
+    flexDirection: "row",
+    padding: 14,
+    gap: 10,
+  },
+  kadaluarsaField: {
+    flex: 1,
+  },
+  kadaluarsaFieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1e8449",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  kadaluarsaInput: {
+    height: 42,
+    backgroundColor: "#ffffff",
     borderRadius: 10,
-    marginTop: 10,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: "#2c3e50",
     borderWidth: 1,
-    borderColor: "#f1c40f",
-    borderLeftWidth: 4,
+    borderColor: "#d5f0e0",
+  },
+  kadaluarsaDateBtn: {
+    height: 42,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#d5f0e0",
+  },
+  kadaluarsaDateIcon: {
+    fontSize: 15,
+  },
+  kadaluarsaDateText: {
+    fontSize: 13,
+    color: "#2c3e50",
+    fontWeight: "500",
   },
   badgeKadaluarsa: {
     paddingHorizontal: 8,
@@ -1367,5 +1535,51 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "white",
     fontWeight: "bold",
+  },
+
+  // Kalkulator HPP Styles
+  hppContainer: {
+    backgroundColor: "#f0f4fa",
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: "#cce0ff",
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#3498db",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  hppHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#3498db",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  hppHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#ffffff",
+    letterSpacing: 0.3,
+  },
+  hppFieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#2980b9",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  hppInput: {
+    height: 42,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: "#2c3e50",
+    borderWidth: 1,
+    borderColor: "#d5e6f0",
   },
 });
