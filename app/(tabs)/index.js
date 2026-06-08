@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -97,10 +97,21 @@ export default function App() {
   // State untuk DatePicker
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Ref untuk memastikan auto-sync hanya berjalan sekali saat pertama kali app dibuka
+  const hasAutoSynced = useRef(false);
+
   // --- AUTO LOAD SAAT TAB DIFOKUSKAN ---
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      const init = async () => {
+        await loadData();
+        // Auto-sync otomatis saat pertama kali app dibuka
+        if (!hasAutoSynced.current) {
+          hasAutoSynced.current = true;
+          handleSync(true); // true = auto-sync (tanpa Alert popup)
+        }
+      };
+      init();
     }, [])
   );
 
@@ -139,7 +150,9 @@ export default function App() {
   };
 
   // --- SYNC ---
-  const handleSync = async () => {
+  // isAuto = true → auto-sync saat app dibuka (tanpa Alert popup)
+  // isAuto = false/undefined → sync manual dari tombol (dengan Alert popup)
+  const handleSync = async (isAuto = false) => {
     if (syncing) return;
     try {
       setSyncing(true);
@@ -147,11 +160,12 @@ export default function App() {
 
       const database = await openDB();
       if (!database) {
-        Alert.alert("Error", "Gagal membuka database");
+        if (!isAuto) Alert.alert("Error", "Gagal membuka database");
         setSyncStatus("error");
         return;
       }
 
+      console.log(`[SYNC] Memulai sinkronisasi ${isAuto ? 'otomatis' : 'manual'}...`);
       const result = await performFullSync(database);
 
       if (result.success) {
@@ -167,15 +181,17 @@ export default function App() {
         } else {
           setFilterData(freshData);
         }
-        Alert.alert("Sukses", "Sinkronisasi berhasil! ✅");
+        if (!isAuto) Alert.alert("Sukses", "Sinkronisasi berhasil! ✅");
+        console.log(`[SYNC] Sinkronisasi ${isAuto ? 'otomatis' : 'manual'} berhasil ✅`);
       } else {
         setSyncStatus("error");
-        Alert.alert("Gagal", "Sync gagal: " + (result.error || "Unknown error"));
+        if (!isAuto) Alert.alert("Gagal", "Sync gagal: " + (result.error || "Unknown error"));
+        console.log(`[SYNC] Sinkronisasi ${isAuto ? 'otomatis' : 'manual'} gagal:`, result.error);
       }
     } catch (err) {
       console.log("Sync error:", err);
       setSyncStatus("error");
-      Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
+      if (!isAuto) Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
     } finally {
       setSyncing(false);
       // Reset status setelah 3 detik
