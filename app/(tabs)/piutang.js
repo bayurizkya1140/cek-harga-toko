@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -60,12 +60,16 @@ export default function PiutangScreen() {
   const [qtyInput, setQtyInput] = useState("1");
   const [qtyModalVisible, setQtyModalVisible] = useState(false);
 
+  // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
+  const searchRef = useRef("");
+
   // Auto load saat fokus ke tab ini
   useFocusEffect(
     useCallback(() => {
       loadAll("belum_lunas");
       setActiveTab("belum_lunas");
       setSearch("");
+      searchRef.current = "";
     }, [])
   );
 
@@ -119,7 +123,11 @@ export default function PiutangScreen() {
       console.log(`Piutang [${tab}]: ${result.length} data ditemukan`);
 
       setDataPiutang(result);
-      setFilterData(result);
+      if (searchRef.current) {
+        applySearch(result, searchRef.current);
+      } else {
+        setFilterData(result);
+      }
 
       // Hitung total & jumlah
       const total = result.reduce((sum, item) => sum + (item.total || 0), 0);
@@ -203,6 +211,7 @@ export default function PiutangScreen() {
 
   const searchFilter = (text) => {
     setSearch(text);
+    searchRef.current = text;
     applySearch(dataPiutang, text);
   };
 

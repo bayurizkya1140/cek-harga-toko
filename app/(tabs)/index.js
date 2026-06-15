@@ -100,6 +100,9 @@ export default function App() {
   // Ref untuk memastikan auto-sync hanya berjalan sekali saat pertama kali app dibuka
   const hasAutoSynced = useRef(false);
 
+  // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
+  const searchRef = useRef("");
+
   // --- AUTO LOAD SAAT TAB DIFOKUSKAN ---
   useFocusEffect(
     useCallback(() => {
@@ -134,9 +137,9 @@ export default function App() {
       const suplierResult = await getSuppliers(database);
       setSuppliers(suplierResult);
 
-      // Jika sedang ada pencarian, filter ulang
-      if (search) {
-        applySearch(result, search);
+      // Jika sedang ada pencarian, filter ulang (gunakan ref agar tidak stale)
+      if (searchRef.current) {
+        applySearch(result, searchRef.current);
       } else {
         setFilterData(result);
       }
@@ -176,8 +179,8 @@ export default function App() {
         // Reload supliers
         const freshSuppliers = await getSuppliers(database);
         setSuppliers(freshSuppliers);
-        if (search) {
-          applySearch(freshData, search);
+        if (searchRef.current) {
+          applySearch(freshData, searchRef.current);
         } else {
           setFilterData(freshData);
         }
@@ -215,6 +218,7 @@ export default function App() {
 
   const searchFilter = (text) => {
     setSearch(text);
+    searchRef.current = text;
     applySearch(dataProduk, text);
   };
 
@@ -416,8 +420,8 @@ export default function App() {
       // Reload data
       const freshData = await getProducts(database);
       setDataProduk(freshData);
-      if (search) {
-        applySearch(freshData, search);
+      if (searchRef.current) {
+        applySearch(freshData, searchRef.current);
       } else {
         setFilterData(freshData);
       }
@@ -447,8 +451,8 @@ export default function App() {
               // Reload data
               const freshData = await getProducts(database);
               setDataProduk(freshData);
-              if (search) {
-                applySearch(freshData, search);
+              if (searchRef.current) {
+                applySearch(freshData, searchRef.current);
               } else {
                 setFilterData(freshData);
               }

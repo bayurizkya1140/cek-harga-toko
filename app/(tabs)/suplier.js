@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +31,9 @@ export default function SuplierTab() {
   const [filterData, setFilterData] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+
+  // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
+  const searchRef = useRef("");
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -68,8 +71,8 @@ export default function SuplierTab() {
       const result = await getSuppliers(database);
       setDataSuplier(result);
 
-      if (search) {
-        applySearch(result, search);
+      if (searchRef.current) {
+        applySearch(result, searchRef.current);
       } else {
         setFilterData(result);
       }
@@ -101,8 +104,8 @@ export default function SuplierTab() {
         setSyncStatus("success");
         const freshData = await getSuppliers(database);
         setDataSuplier(freshData);
-        if (search) {
-          applySearch(freshData, search);
+        if (searchRef.current) {
+          applySearch(freshData, searchRef.current);
         } else {
           setFilterData(freshData);
         }
@@ -137,6 +140,7 @@ export default function SuplierTab() {
 
   const searchFilter = (text) => {
     setSearch(text);
+    searchRef.current = text;
     applySearch(dataSuplier, text);
   };
 
@@ -202,7 +206,7 @@ export default function SuplierTab() {
       closeFormModal();
       const freshData = await getSuppliers(database);
       setDataSuplier(freshData);
-      applySearch(freshData, search);
+      applySearch(freshData, searchRef.current);
     } catch (err) {
       console.log("Error save suplier:", err);
       Alert.alert("Error", "Gagal menyimpan suplier: " + err.message);
@@ -227,7 +231,7 @@ export default function SuplierTab() {
               await deleteSupplier(database, item.id);
               const freshData = await getSuppliers(database);
               setDataSuplier(freshData);
-              applySearch(freshData, search);
+              applySearch(freshData, searchRef.current);
             } catch (err) {
               console.log("Error delete suplier:", err);
               Alert.alert("Error", "Gagal menghapus suplier");
