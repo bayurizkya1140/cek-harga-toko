@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Modal,
   StyleSheet,
@@ -27,6 +28,21 @@ export default function TabLayout() {
   const [exitModalVisible, setExitModalVisible] = useState(false);
   const [isSyncingForExit, setIsSyncingForExit] = useState(false);
   const [syncExitStatus, setSyncExitStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+
+  // --- RESET STATE SAAT APP KEMBALI KE FOREGROUND ---
+  // Mencegah tampilan "Sinkronisasi Berhasil" muncul saat app di-resume
+  // karena BackHandler.exitApp() di Android tidak selalu kill proses.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        setExitModalVisible(false);
+        setIsSyncingForExit(false);
+        setSyncExitStatus('idle');
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     checkBadgeCount();
