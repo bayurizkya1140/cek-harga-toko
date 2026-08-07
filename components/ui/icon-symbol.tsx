@@ -22,7 +22,9 @@ const MAPPING = {
   'person.fill': 'person',
   'car.fill': 'local-shipping',
   'building.2.fill': 'store',
+  'building.2.crop.circle.fill': 'warehouse',
   'exclamationmark.triangle.fill': 'warning',
+  'cart.fill': 'shopping-cart',
 } as IconMapping;
 
 /**

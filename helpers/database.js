@@ -359,6 +359,54 @@ export async function markPiutangLunas(db, piutang) {
 }
 
 // =============================================
+// KASIR — TRANSAKSI TUNAI
+// =============================================
+
+/**
+ * Tambah transaksi kasir (tunai).
+ * 1. Insert ke tabel transactions
+ * 2. Kurangi stok per produk berdasarkan detail JSON
+ *
+ * @param {object} db - Database instance
+ * @param {object} param1 - { tanggal, total, detail (JSON string) }
+ * @returns {string} UUID transaksi yang dibuat
+ */
+export async function addTransactionKasir(db, { tanggal, total, detail }) {
+  const transactionUuid = uuidv4();
+  const updated_at = new Date().toISOString();
+
+  // 1. Insert transaksi
+  await db.runAsync(
+    `INSERT INTO transactions (uuid, tanggal, total, detail, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, 'pending_insert', ?)`,
+    [transactionUuid, tanggal, total, detail, updated_at]
+  );
+
+  // 2. Kurangi stok per produk
+  if (detail) {
+    try {
+      const items = JSON.parse(detail);
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          if (item.nama) {
+            await db.runAsync(
+              `UPDATE products SET stok = stok - ?,
+               sync_status = CASE WHEN sync_status = 'pending_insert' THEN 'pending_insert' ELSE 'pending_update' END,
+               updated_at = ? WHERE nama = ?`,
+              [item.qty || 0, updated_at, item.nama]
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error parsing kasir detail for stock update:", e);
+    }
+  }
+
+  return transactionUuid;
+}
+
+// =============================================
 // FUNGSI SYNC HELPER (digunakan oleh syncService)
 // =============================================
 

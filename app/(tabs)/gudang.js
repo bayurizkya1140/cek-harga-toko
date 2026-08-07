@@ -1,0 +1,1594 @@
+import { useCallback, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import { useFocusEffect } from "@react-navigation/native";
+import * as ImagePicker from "expo-image-picker";
+import { StatusBar } from "expo-status-bar";
+
+import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  addProduct,
+  deleteProduct,
+  getProductFoto,
+  getProducts,
+  getSuppliers,
+  openDB,
+  updateProduct,
+} from "../../helpers/database";
+import { performFullSync } from "../../helpers/syncService";
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+
+// Daftar satuan yang sama dengan versi desktop
+const SATUAN_OPTIONS = [
+  "pcs", "kg", "meter", "sak", "dus", "roll", "btg", "lembar", "set", "liter", "galon"
+];
+
+// Helper: format angka dengan titik ribuan (1000 → 1.000)
+const formatRibuan = (num) => {
+  if (!num && num !== 0) return "";
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
+// Helper: hapus titik dari string harga (1.000 → 1000)
+const parseHarga = (str) => {
+  if (!str) return 0;
+  return parseInt(str.replace(/\./g, "")) || 0;
+};
+
+export default function App() {
+  const [dataProduk, setDataProduk] = useState([]);
+  const [filterData, setFilterData] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle, syncing, success, error
+
+  // State untuk modal foto preview
+  const [fotoModalVisible, setFotoModalVisible] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [imageLoading, setImageLoading] = useState(true);
+
+  // State untuk data suplier
+  const [suppliers, setSuppliers] = useState([]);
+  const [suplierPickerVisible, setSuplierPickerVisible] = useState(false);
+
+  // State untuk modal form (tambah / edit)
+  const [formModalVisible, setFormModalVisible] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null); // null = tambah, object = edit
+  const [formData, setFormData] = useState({
+    nama: "",
+    stok: "",
+    satuan: "pcs",
+    harga: "",
+    hargaMode: "manual",
+    hpp: "",
+    margin: "",
+    lokasi: "",
+    foto: null,
+    suplier_id: null,
+    suplier_uuid: null,
+    has_kadaluarsa: false,
+    batch_number: "",
+    tanggal_kadaluarsa: new Date(),
+  });
+
+  // State untuk satuan picker
+  const [satuanPickerVisible, setSatuanPickerVisible] = useState(false);
+
+  // State untuk DatePicker
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
+  const searchRef = useRef("");
+
+  // --- AUTO LOAD SAAT TAB DIFOKUSKAN ---
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const database = await openDB();
+
+      if (!database) {
+        setLoading(false);
+        setDataProduk([]);
+        setFilterData([]);
+        return;
+      }
+
+      const result = await getProducts(database);
+      setDataProduk(result);
+
+      // Load data suplier untuk dropdown form
+      const suplierResult = await getSuppliers(database);
+      setSuppliers(suplierResult);
+
+      // Jika sedang ada pencarian, filter ulang (gunakan ref agar tidak stale)
+      if (searchRef.current) {
+        applySearch(result, searchRef.current);
+      } else {
+        setFilterData(result);
+      }
+      setLoading(false);
+    } catch (e) {
+      console.log("Gagal load data:", e);
+      setLoading(false);
+      setDataProduk([]);
+      setFilterData([]);
+    }
+  };
+
+  // --- SYNC ---
+  // isAuto = true → auto-sync saat app dibuka (tanpa Alert popup)
+  // isAuto = false/undefined → sync manual dari tombol (dengan Alert popup)
+  const handleSync = async (isAuto = false) => {
+    if (syncing) return;
+    try {
+      setSyncing(true);
+      setSyncStatus("syncing");
+
+      const database = await openDB();
+      if (!database) {
+        if (!isAuto) Alert.alert("Error", "Gagal membuka database");
+        setSyncStatus("error");
+        return;
+      }
+
+      console.log(`[SYNC] Memulai sinkronisasi ${isAuto ? 'otomatis' : 'manual'}...`);
+      const result = await performFullSync(database);
+
+      if (result.success) {
+        setSyncStatus("success");
+        // Reload data setelah sync
+        const freshData = await getProducts(database);
+        setDataProduk(freshData);
+        // Reload supliers
+        const freshSuppliers = await getSuppliers(database);
+        setSuppliers(freshSuppliers);
+        if (searchRef.current) {
+          applySearch(freshData, searchRef.current);
+        } else {
+          setFilterData(freshData);
+        }
+        if (!isAuto) Alert.alert("Sukses", "Sinkronisasi berhasil! ✅");
+        console.log(`[SYNC] Sinkronisasi ${isAuto ? 'otomatis' : 'manual'} berhasil ✅`);
+      } else {
+        setSyncStatus("error");
+        if (!isAuto) Alert.alert("Gagal", "Sync gagal: " + (result.error || "Unknown error"));
+        console.log(`[SYNC] Sinkronisasi ${isAuto ? 'otomatis' : 'manual'} gagal:`, result.error);
+      }
+    } catch (err) {
+      console.log("Sync error:", err);
+      setSyncStatus("error");
+      if (!isAuto) Alert.alert("Error", "Terjadi kesalahan saat sync: " + err.message);
+    } finally {
+      setSyncing(false);
+      // Reset status setelah 3 detik
+      setTimeout(() => setSyncStatus("idle"), 3000);
+    }
+  };
+
+  // --- SEARCH ---
+  const applySearch = (data, text) => {
+    if (text) {
+      const newData = data.filter((item) => {
+        const itemData = item.nama ? item.nama.toUpperCase() : "";
+        const textData = text.toUpperCase();
+        return itemData.indexOf(textData) > -1;
+      });
+      setFilterData(newData);
+    } else {
+      setFilterData(data);
+    }
+  };
+
+  const searchFilter = (text) => {
+    setSearch(text);
+    searchRef.current = text;
+    applySearch(dataProduk, text);
+  };
+
+  // --- FOTO PREVIEW MODAL ---
+  const openFotoModal = async (product) => {
+    setSelectedProduct({ ...product, foto: null });
+    setImageLoading(true);
+    setFotoModalVisible(true);
+    // Load foto on-demand
+    try {
+      const database = await openDB();
+      if (database) {
+        const foto = await getProductFoto(database, product.id);
+        setSelectedProduct({ ...product, foto });
+      }
+    } catch (e) {
+      console.log("Error loading foto:", e);
+    }
+  };
+
+  const closeFotoModal = () => {
+    setFotoModalVisible(false);
+    setSelectedProduct(null);
+  };
+
+  // --- FORM MODAL (TAMBAH / EDIT) ---
+  const openAddForm = () => {
+    setEditingProduct(null);
+    setFormData({
+      nama: "",
+      stok: "",
+      satuan: "pcs",
+      harga: "",
+      hargaMode: "manual",
+      hpp: "",
+      margin: "",
+      lokasi: "",
+      foto: null,
+      suplier_id: null,
+      suplier_uuid: null,
+      has_kadaluarsa: false,
+      batch_number: "",
+      tanggal_kadaluarsa: new Date(),
+    });
+    setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
+    setFormModalVisible(true);
+  };
+
+  const openEditForm = async (product) => {
+    setEditingProduct(product);
+    let parsedDate = new Date();
+    if (product.tanggal_kadaluarsa) {
+      const [year, month, day] = product.tanggal_kadaluarsa.split('-');
+      parsedDate = new Date(year, month - 1, day);
+    }
+    // Load foto on-demand untuk edit
+    let foto = null;
+    try {
+      const database = await openDB();
+      if (database) {
+        foto = await getProductFoto(database, product.id);
+      }
+    } catch (e) {
+      console.log("Error loading foto for edit:", e);
+    }
+    setFormData({
+      nama: product.nama || "",
+      stok: product.stok?.toString() || "0",
+      satuan: product.satuan || "pcs",
+      harga: product.harga ? formatRibuan(product.harga) : "0",
+      hargaMode: "manual",
+      hpp: "",
+      margin: "",
+      lokasi: product.lokasi || "",
+      foto: foto,
+      suplier_id: product.suplier_id || null,
+      suplier_uuid: product.suplier_uuid || null,
+      has_kadaluarsa: product.has_kadaluarsa === 1,
+      batch_number: product.batch_number || "",
+      tanggal_kadaluarsa: parsedDate,
+    });
+    setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
+    setFormModalVisible(true);
+  };
+
+  const closeFormModal = () => {
+    setFormModalVisible(false);
+    setEditingProduct(null);
+    setSatuanPickerVisible(false);
+    setSuplierPickerVisible(false);
+  };
+
+  // --- PILIH FOTO ---
+  // Konfigurasi sama dengan desktop: max 800px, quality 85%, tanpa crop kotak
+  const IMAGE_PICKER_OPTIONS = {
+    mediaTypes: ['images'],
+    quality: 0.85,        // Sama dengan desktop (canvas.toDataURL quality: 0.85)
+    base64: true,
+    allowsEditing: true,  // Bisa crop manual tapi tidak dipaksa kotak
+    maxWidth: 800,        // Max width 800px
+    maxHeight: 800,       // Max height 800px
+    // Tidak pakai aspect ratio agar proporsional seperti desktop
+  };
+
+  const pickImage = async (source) => {
+    try {
+      let result;
+      if (source === "camera") {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert("Izin Ditolak", "Izin kamera diperlukan untuk mengambil foto.");
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync(IMAGE_PICKER_OPTIONS);
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert("Izin Ditolak", "Izin galeri diperlukan untuk memilih foto.");
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync(IMAGE_PICKER_OPTIONS);
+      }
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        const base64 = `data:image/jpeg;base64,${asset.base64}`;
+        setFormData((prev) => ({ ...prev, foto: base64 }));
+      }
+    } catch (err) {
+      console.log("Error pick image:", err);
+      Alert.alert("Error", "Gagal mengambil foto");
+    }
+  };
+
+  const showImagePickerOptions = () => {
+    Alert.alert("Pilih Foto", "Ambil foto dari mana?", [
+      { text: "📷 Kamera", onPress: () => pickImage("camera") },
+      { text: "🖼️ Galeri", onPress: () => pickImage("gallery") },
+      ...(!editingProduct && formData.foto
+        ? [
+          {
+            text: "🗑️ Hapus Foto",
+            style: "destructive",
+            onPress: () => setFormData((prev) => ({ ...prev, foto: null })),
+          },
+        ]
+        : []),
+      { text: "Batal", style: "cancel" },
+    ]);
+  };
+
+  // --- SIMPAN PRODUK ---
+  const handleSaveProduct = async () => {
+    if (!formData.nama.trim()) {
+      Alert.alert("Error", "Nama produk harus diisi!");
+      return;
+    }
+
+    try {
+      const database = await openDB();
+      if (!database) {
+        Alert.alert("Error", "Gagal membuka database");
+        return;
+      }
+
+      const formatDate = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const productData = {
+        nama: formData.nama.trim(),
+        stok: parseFloat(formData.stok) || 0,
+        satuan: formData.satuan || "pcs",
+        harga: parseHarga(formData.harga),
+        lokasi: formData.lokasi.trim(),
+        foto: formData.foto,
+        suplier_id: formData.suplier_id,
+        suplier_uuid: formData.suplier_uuid,
+        has_kadaluarsa: formData.has_kadaluarsa,
+        batch_number: formData.has_kadaluarsa ? formData.batch_number.trim() : null,
+        tanggal_kadaluarsa: formData.has_kadaluarsa ? formatDate(formData.tanggal_kadaluarsa) : null,
+      };
+
+      if (editingProduct) {
+        await updateProduct(database, editingProduct.id, productData);
+        Alert.alert("Sukses", "Produk berhasil diperbarui! ✏️");
+      } else {
+        await addProduct(database, productData);
+        Alert.alert("Sukses", "Produk berhasil ditambahkan! ✅");
+      }
+
+      closeFormModal();
+
+      // Reload data
+      const freshData = await getProducts(database);
+      setDataProduk(freshData);
+      if (searchRef.current) {
+        applySearch(freshData, searchRef.current);
+      } else {
+        setFilterData(freshData);
+      }
+    } catch (err) {
+      console.log("Error save product:", err);
+      Alert.alert("Error", "Gagal menyimpan produk: " + err.message);
+    }
+  };
+
+  // --- HAPUS PRODUK ---
+  const handleDeleteProduct = (product) => {
+    Alert.alert(
+      "Hapus Produk",
+      `Apakah Anda yakin ingin menghapus "${product.nama}"?`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Hapus",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const database = await openDB();
+              if (!database) return;
+
+              await deleteProduct(database, product.id);
+
+              // Reload data
+              const freshData = await getProducts(database);
+              setDataProduk(freshData);
+              if (searchRef.current) {
+                applySearch(freshData, searchRef.current);
+              } else {
+                setFilterData(freshData);
+              }
+            } catch (err) {
+              console.log("Error delete:", err);
+              Alert.alert("Error", "Gagal menghapus produk");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // --- SYNC STATUS INDICATOR ---
+  const getSyncStatusText = () => {
+    switch (syncStatus) {
+      case "syncing":
+        return "⏳ Menyinkronkan...";
+      case "success":
+        return "✅ Tersinkronisasi";
+      case "error":
+        return "❌ Gagal Sync";
+      default:
+        return `📦 ${dataProduk.length} Produk`;
+    }
+  };
+
+  const getSyncStatusColor = () => {
+    switch (syncStatus) {
+      case "syncing":
+        return "#f39c12";
+      case "success":
+        return "#27ae60";
+      case "error":
+        return "#e74c3c";
+      default:
+        return "#bdc3c7";
+    }
+  };
+
+  // --- RENDER BADGE KADALUARSA ---
+  const getExpiryBadge = (item) => {
+    if (item.has_kadaluarsa !== 1 || !item.tanggal_kadaluarsa) return null;
+
+    const [y, m, d] = item.tanggal_kadaluarsa.split('-');
+    const expDate = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffTime = expDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#c0392b' }]}><Text style={styles.badgeKadaluarsaText}>Kadaluarsa</Text></View>;
+    } else if (diffDays <= 60) {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#f39c12' }]}><Text style={styles.badgeKadaluarsaText}>Hampir Kadaluarsa ({diffDays} hr)</Text></View>;
+    } else {
+      return <View style={[styles.badgeKadaluarsa, { backgroundColor: '#27ae60' }]}><Text style={styles.badgeKadaluarsaText}>Aman ({diffDays} hr)</Text></View>;
+    }
+  };
+
+  // --- RENDER ITEM ---
+  const renderItem = ({ item }) => {
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerCard}>
+          <Text style={styles.namaBarang} numberOfLines={5}>
+            {item.nama}
+          </Text>
+          <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+            {item.lokasi ? (
+              <Text style={styles.lokasi}>📍 {item.lokasi}</Text>
+            ) : null}
+            {getExpiryBadge(item)}
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>Harga:</Text>
+          <Text style={styles.harga}>
+            Rp {item.harga ? item.harga.toLocaleString("id-ID") : 0}
+          </Text>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>Stok:</Text>
+          <Text style={styles.stok}>
+            {item.stok} {item.satuan}
+          </Text>
+        </View>
+        {/* Action buttons */}
+        <View style={styles.actionRow}>
+          {item.has_foto ? (
+            <TouchableOpacity
+              style={[styles.btnAction, styles.btnFoto]}
+              onPress={() => openFotoModal(item)}
+            >
+              <Text style={[styles.btnActionText, { color: "#fff" }]}>📷 Foto</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.btnAction, styles.btnEdit]}
+            onPress={() => openEditForm(item)}
+          >
+            <Text style={styles.btnActionText}>✏️ Edit</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btnAction, styles.btnDelete]}
+            onPress={() => handleDeleteProduct(item)}
+          >
+            <Text style={[styles.btnActionText, { color: "#fff" }]}>🗑️ Hapus</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="light" backgroundColor="#2c3e50" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Gudang</Text>
+        <Text style={[styles.subtitle, { color: getSyncStatusColor() }]}>
+          {getSyncStatusText()}
+        </Text>
+        <TouchableOpacity
+          style={[styles.btnSync, syncing && styles.btnSyncDisabled]}
+          onPress={handleSync}
+          disabled={syncing}
+        >
+          {syncing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.btnSyncText}>🔄 Sync Data</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Search */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="🔍 Cari Barang..."
+          placeholderTextColor="#95a5a6"
+          selectionColor="#2c3e50"
+          value={search}
+          onChangeText={(text) => searchFilter(text)}
+        />
+      </View>
+
+      {/* Product List */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2c3e50" />
+          <Text style={styles.loadingText}>Memuat data...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filterData}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingBottom: 80, paddingHorizontal: 15 }}
+          ListEmptyComponent={
+            <View style={{ marginTop: 50, alignItems: "center" }}>
+              <Text style={{ fontSize: 48, marginBottom: 10 }}>📦</Text>
+              <Text style={{ color: "#888", textAlign: "center" }}>
+                {dataProduk.length > 0
+                  ? "Barang tidak ditemukan"
+                  : "Data belum ada.\nTekan tombol 🔄 Sync Data untuk mengambil data dari cloud, atau ➕ untuk menambah produk baru."}
+              </Text>
+            </View>
+          }
+        />
+      )}
+
+      {/* FAB — Tombol Tambah Produk */}
+      <TouchableOpacity style={styles.fab} onPress={openAddForm}>
+        <Text style={styles.fabText}>➕</Text>
+      </TouchableOpacity>
+
+      {/* ========== MODAL: FOTO PREVIEW ========== */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={fotoModalVisible}
+        onRequestClose={closeFotoModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle} numberOfLines={2}>
+                {selectedProduct?.nama}
+              </Text>
+              <TouchableOpacity
+                style={styles.btnClose}
+                onPress={closeFotoModal}
+              >
+                <Text style={styles.btnCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.imageContainer}>
+              {imageLoading && (
+                <View style={styles.imgLoadingContainer}>
+                  <ActivityIndicator size="large" color="#27ae60" />
+                  <Text style={styles.imgLoadingText}>Memuat gambar...</Text>
+                </View>
+              )}
+              {selectedProduct?.foto && (
+                <Image
+                  source={{ uri: selectedProduct.foto }}
+                  style={styles.modalImage}
+                  resizeMode="contain"
+                  onLoadStart={() => setImageLoading(true)}
+                  onLoadEnd={() => setImageLoading(false)}
+                  onError={() => {
+                    setImageLoading(false);
+                    Alert.alert("Error", "Gagal memuat gambar");
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== MODAL: FORM TAMBAH / EDIT ========== */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={formModalVisible}
+        onRequestClose={closeFormModal}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior="padding"
+        >
+          <View style={styles.formOverlay}>
+            <View style={styles.formContent}>
+              {/* Header */}
+              <View style={styles.formHeader}>
+                <Text style={styles.formTitle}>
+                  {editingProduct ? "✏️ Edit Produk" : "➕ Tambah Produk"}
+                </Text>
+                <TouchableOpacity
+                  style={styles.btnClose}
+                  onPress={closeFormModal}
+                >
+                  <Text style={styles.btnCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.formBody}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Nama */}
+                <Text style={styles.formLabel}>Nama Produk *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formData.nama}
+                  onChangeText={(t) =>
+                    setFormData((prev) => ({ ...prev, nama: t }))
+                  }
+                  placeholder="Contoh: Paku 5cm"
+                  placeholderTextColor="#95a5a6"
+                  selectionColor="#2c3e50"
+                />
+
+                {/* Stok & Satuan */}
+                <View style={styles.formRow}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.formLabel}>Stok</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formData.stok}
+                      onChangeText={(t) =>
+                        setFormData((prev) => ({ ...prev, stok: t }))
+                      }
+                      placeholder="0"
+                      placeholderTextColor="#95a5a6"
+                      selectionColor="#2c3e50"
+                      keyboardType="numeric"
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 8, zIndex: 10 }}>
+                    <Text style={styles.formLabel}>Satuan</Text>
+                    <TouchableOpacity
+                      style={[styles.formInput, styles.satuanPicker]}
+                      onPress={() => setSatuanPickerVisible(!satuanPickerVisible)}
+                    >
+                      <Text style={styles.satuanPickerText}>
+                        {formData.satuan ? formData.satuan.charAt(0).toUpperCase() + formData.satuan.slice(1) : "Pilih Satuan"}
+                      </Text>
+                      <Text style={styles.satuanPickerArrow}>
+                        {satuanPickerVisible ? "▲" : "▼"}
+                      </Text>
+                    </TouchableOpacity>
+                    {satuanPickerVisible && (
+                      <View style={styles.satuanDropdown}>
+                        {SATUAN_OPTIONS.map((s) => (
+                          <TouchableOpacity
+                            key={s}
+                            style={[
+                              styles.satuanOption,
+                              formData.satuan === s && styles.satuanOptionActive,
+                            ]}
+                            onPress={() => {
+                              setFormData((prev) => ({ ...prev, satuan: s }));
+                              setSatuanPickerVisible(false);
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.satuanOptionText,
+                                formData.satuan === s && styles.satuanOptionTextActive,
+                              ]}
+                            >
+                              {s.charAt(0).toUpperCase() + s.slice(1)}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Toggle Mode Harga */}
+                <View style={styles.toggleRow}>
+                  <Text style={styles.formLabelToggle}>Mode Harga Jual (Kalkulator HPP)</Text>
+                  <TouchableOpacity
+                    style={[styles.toggleBtn, formData.hargaMode === 'hpp' ? styles.toggleActive : styles.toggleInactive]}
+                    onPress={() => setFormData(p => ({ ...p, hargaMode: p.hargaMode === 'hpp' ? 'manual' : 'hpp' }))}
+                  >
+                    <View style={[styles.toggleKnob, formData.hargaMode === 'hpp' ? styles.knobActive : styles.knobInactive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {formData.hargaMode === 'manual' ? (
+                  <>
+                    <Text style={[styles.formLabel, { marginTop: 0 }]}>Harga Jual (Rp)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formData.harga}
+                      onChangeText={(t) => {
+                        const angkaMurni = t.replace(/\D/g, "");
+                        const formatted = formatRibuan(angkaMurni);
+                        setFormData((prev) => ({ ...prev, harga: formatted }));
+                      }}
+                      placeholder="0"
+                      placeholderTextColor="#95a5a6"
+                      selectionColor="#2c3e50"
+                      keyboardType="numeric"
+                    />
+                  </>
+                ) : (
+                  <View style={styles.hppContainer}>
+                    <View style={styles.hppHeader}>
+                      <Text style={styles.kadaluarsaHeaderIcon}>💰</Text>
+                      <Text style={styles.hppHeaderTitle}>Kalkulasi Harga Jual</Text>
+                    </View>
+                    <View style={styles.kadaluarsaFieldsRow}>
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.hppFieldLabel}>Harga Modal (Rp)</Text>
+                        <TextInput
+                          style={styles.hppInput}
+                          value={formData.hpp}
+                          onChangeText={(t) => {
+                            const angkaMurni = t.replace(/\D/g, "");
+                            const hppVal = parseInt(angkaMurni) || 0;
+                            const marginVal = parseFloat(formData.margin) || 0;
+                            const hJual = Math.round(hppVal + (hppVal * marginVal / 100));
+
+                            setFormData(prev => ({
+                              ...prev,
+                              hpp: formatRibuan(angkaMurni),
+                              harga: formatRibuan(hJual)
+                            }));
+                          }}
+                          placeholder="0"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.hppFieldLabel}>Margin (%)</Text>
+                        <TextInput
+                          style={styles.hppInput}
+                          value={formData.margin}
+                          onChangeText={(t) => {
+                            const marginStr = t.replace(/[^0-9.]/g, "");
+                            const marginVal = parseFloat(marginStr) || 0;
+                            const hppVal = parseHarga(formData.hpp);
+                            const hJual = Math.round(hppVal + (hppVal * marginVal / 100));
+                            
+                            setFormData(prev => ({
+                              ...prev,
+                              margin: marginStr,
+                              harga: formatRibuan(hJual)
+                            }));
+                          }}
+                          placeholder="10"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                    <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+                      <Text style={styles.hppFieldLabel}>Harga Jual Dihitung (Rp)</Text>
+                      <TextInput
+                        style={[styles.hppInput, { backgroundColor: '#e9ecef', color: '#7f8c8d' }]}
+                        value={formData.harga}
+                        editable={false}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* Suplier Dropdown */}
+                <Text style={styles.formLabel}>Suplier</Text>
+                <TouchableOpacity
+                  style={[styles.formInput, styles.suplierPicker]}
+                  onPress={() => setSuplierPickerVisible(!suplierPickerVisible)}
+                >
+                  <Text style={formData.suplier_id ? styles.satuanPickerText : { color: '#bdc3c7' }}>
+                    {formData.suplier_id
+                      ? suppliers.find(s => s.id === formData.suplier_id)?.nama || "Suplier tidak diketahui"
+                      : "Pilih Suplier (Opsional)"}
+                  </Text>
+                  <Text style={styles.satuanPickerArrow}>
+                    {suplierPickerVisible ? "▲" : "▼"}
+                  </Text>
+                </TouchableOpacity>
+                {suplierPickerVisible && (
+                  <View style={styles.suplierDropdown}>
+                    <TouchableOpacity
+                      style={[styles.satuanOption, !formData.suplier_id && styles.satuanOptionActive]}
+                      onPress={() => {
+                        setFormData((prev) => ({ ...prev, suplier_id: null }));
+                        setSuplierPickerVisible(false);
+                      }}
+                    >
+                      <Text style={[styles.satuanOptionText, !formData.suplier_id && styles.satuanOptionTextActive]}>- Tidak Ada -</Text>
+                    </TouchableOpacity>
+                    {suppliers.map((s) => (
+                      <TouchableOpacity
+                        key={s.id.toString()}
+                        style={[styles.satuanOption, formData.suplier_id === s.id && styles.satuanOptionActive]}
+                        onPress={() => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            suplier_id: s.id,
+                            suplier_uuid: s.uuid
+                          }));
+                          setSuplierPickerVisible(false);
+                        }}
+                      >
+                        <Text style={[styles.satuanOptionText, formData.suplier_id === s.id && styles.satuanOptionTextActive]}>
+                          {s.nama}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Toggle Kadaluarsa */}
+                <View style={styles.toggleRow}>
+                  <Text style={styles.formLabelToggle}>Ada Kadaluarsa?</Text>
+                  <TouchableOpacity
+                    style={[styles.toggleBtn, formData.has_kadaluarsa ? styles.toggleActive : styles.toggleInactive]}
+                    onPress={() => setFormData(p => ({ ...p, has_kadaluarsa: !p.has_kadaluarsa }))}
+                  >
+                    <View style={[styles.toggleKnob, formData.has_kadaluarsa ? styles.knobActive : styles.knobInactive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Input Khusus Kadaluarsa */}
+                {formData.has_kadaluarsa && (
+                  <View style={styles.kadaluarsaContainer}>
+                    {/* Header Card */}
+                    <View style={styles.kadaluarsaHeader}>
+                      <Text style={styles.kadaluarsaHeaderIcon}>📋</Text>
+                      <Text style={styles.kadaluarsaHeaderTitle}>Informasi Kadaluarsa</Text>
+                    </View>
+
+                    {/* Fields Row */}
+                    <View style={styles.kadaluarsaFieldsRow}>
+                      {/* Nomor Batch */}
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.kadaluarsaFieldLabel}>Nomor Batch</Text>
+                        <TextInput
+                          style={styles.kadaluarsaInput}
+                          value={formData.batch_number}
+                          onChangeText={(t) => setFormData((prev) => ({ ...prev, batch_number: t }))}
+                          placeholder="B129380"
+                          placeholderTextColor="#b0b8c1"
+                          selectionColor="#2c3e50"
+                        />
+                      </View>
+
+                      {/* Tanggal Kadaluarsa */}
+                      <View style={styles.kadaluarsaField}>
+                        <Text style={styles.kadaluarsaFieldLabel}>Tgl. Kadaluarsa</Text>
+                        <TouchableOpacity
+                          style={styles.kadaluarsaDateBtn}
+                          onPress={() => setShowDatePicker(true)}
+                        >
+                          <Text style={styles.kadaluarsaDateIcon}>📅</Text>
+                          <Text style={styles.kadaluarsaDateText}>{formData.tanggal_kadaluarsa.toLocaleDateString("id-ID")}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {showDatePicker && (
+                      <DateTimePicker
+                        value={formData.tanggal_kadaluarsa}
+                        mode="date"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowDatePicker(false);
+                          if (selectedDate) setFormData(p => ({ ...p, tanggal_kadaluarsa: selectedDate }));
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
+
+                {/* Lokasi */}
+                <Text style={styles.formLabel}>Lokasi</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formData.lokasi}
+                  onChangeText={(t) =>
+                    setFormData((prev) => ({ ...prev, lokasi: t }))
+                  }
+                  placeholder="Rak A / Gudang Belakang"
+                  placeholderTextColor="#95a5a6"
+                  selectionColor="#2c3e50"
+                />
+
+                {/* Foto — tampil untuk TAMBAH dan EDIT */}
+                <>
+                  <Text style={styles.formLabel}>Foto Produk</Text>
+                  <TouchableOpacity
+                    style={styles.fotoPicker}
+                    onPress={showImagePickerOptions}
+                  >
+                    {formData.foto ? (
+                      <Image
+                        source={{ uri: formData.foto }}
+                        style={styles.fotoPreview}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.fotoPlaceholder}>
+                        <Text style={{ fontSize: 32 }}>📷</Text>
+                        <Text style={{ color: "#95a5a6", marginTop: 5, fontSize: 12 }}>
+                          Ketuk untuk pilih foto
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </>
+
+                {/* Tombol Simpan */}
+                <TouchableOpacity
+                  style={styles.btnSave}
+                  onPress={handleSaveProduct}
+                >
+                  <Text style={styles.btnSaveText}>
+                    {editingProduct ? "💾 Perbarui Produk" : "💾 Simpan Produk"}
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={{ height: 80 }} />
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#f5f6fa" },
+  header: {
+    backgroundColor: "#2c3e50",
+    padding: 12,
+    paddingTop: Platform.OS === "android" ? 45 : 12,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
+    alignItems: "center",
+  },
+  title: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  subtitle: {
+    color: "#95a5a6",
+    fontSize: 11,
+    marginTop: 2,
+    marginBottom: 5,
+    textAlign: "center",
+  },
+  btnSync: {
+    backgroundColor: "#3498db",
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    elevation: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+    minWidth: 120,
+  },
+  btnSyncDisabled: {
+    backgroundColor: "#7f8c8d",
+  },
+  btnSyncText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 12,
+  },
+
+  searchContainer: {
+    paddingHorizontal: 15,
+    paddingTop: 10,
+    paddingBottom: 5,
+  },
+  searchInput: {
+    height: 44,
+    backgroundColor: "white",
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    fontSize: 14,
+    color: "#2c3e50",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    color: "#7f8c8d",
+    fontSize: 14,
+  },
+
+  card: {
+    backgroundColor: "white",
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+  },
+  headerCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    paddingBottom: 8,
+  },
+  namaBarang: { fontSize: 15, fontWeight: "bold", color: "#2c3e50", flex: 1 },
+  lokasi: {
+    fontSize: 11,
+    color: "#d35400",
+    fontWeight: "bold",
+    backgroundColor: "#ffe0b2",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    marginLeft: 5,
+  },
+
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  label: { color: "#95a5a6", fontSize: 12 },
+  harga: { color: "#27ae60", fontWeight: "bold", fontSize: 16 },
+  stok: { color: "#2c3e50", fontWeight: "bold", fontSize: 13 },
+
+  // Action buttons
+  actionRow: {
+    flexDirection: "row",
+    marginTop: 10,
+    gap: 8,
+  },
+  btnAction: {
+    flex: 1,
+    backgroundColor: "#ecf0f1",
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  btnFoto: {
+    backgroundColor: "#3498db",
+  },
+  btnEdit: {
+    backgroundColor: "#ebf5fb",
+  },
+  btnDelete: {
+    backgroundColor: "#e74c3c",
+  },
+  btnActionText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#2c3e50",
+  },
+
+  // FAB
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#27ae60",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 6,
+    shadowColor: "#27ae60",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 5,
+  },
+  fabText: { fontSize: 24 },
+
+  // Modal Foto Preview
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 15,
+    width: screenWidth * 0.9,
+    maxHeight: screenHeight * 0.8,
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    backgroundColor: "#2c3e50",
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "white",
+    flex: 1,
+    marginRight: 10,
+  },
+  btnClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#e74c3c",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  btnCloseText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  imageContainer: {
+    width: "100%",
+    height: screenHeight * 0.6,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+  },
+  modalImage: {
+    width: "100%",
+    height: "100%",
+  },
+  imgLoadingContainer: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
+  imgLoadingText: {
+    marginTop: 10,
+    color: "#666",
+    fontSize: 14,
+  },
+
+  // Modal Form
+  formOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  formContent: {
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: screenHeight * 0.85,
+    overflow: "hidden",
+  },
+  formHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    backgroundColor: "#2c3e50",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  formTitle: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "white",
+  },
+  formBody: {
+    padding: 20,
+  },
+  formLabel: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#2c3e50",
+    marginBottom: 5,
+    marginTop: 12,
+  },
+  formInput: {
+    height: 44,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    fontSize: 14,
+    color: "#2c3e50",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  formRow: {
+    flexDirection: "row",
+  },
+
+  // Foto picker in form
+  fotoPicker: {
+    marginTop: 5,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "#e0e0e0",
+    borderStyle: "dashed",
+  },
+  fotoPreview: {
+    width: "100%",
+    height: 180,
+  },
+  fotoPlaceholder: {
+    width: "100%",
+    height: 120,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+  },
+
+  // Save button
+  btnSave: {
+    backgroundColor: "#27ae60",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 20,
+    elevation: 3,
+  },
+  btnSaveText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+
+  // Satuan picker styles
+  satuanPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  satuanPickerText: {
+    fontSize: 14,
+    color: "#2c3e50",
+  },
+  satuanPickerArrow: {
+    fontSize: 10,
+    color: "#95a5a6",
+  },
+  satuanDropdown: {
+    position: "absolute",
+    top: 75,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 10,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    overflow: "hidden",
+    zIndex: 20,
+  },
+  satuanOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f5f5f5",
+  },
+  satuanOptionActive: {
+    backgroundColor: "#ebf5fb",
+  },
+  satuanOptionText: {
+    fontSize: 14,
+    color: "#2c3e50",
+  },
+  satuanOptionTextActive: {
+    fontWeight: "bold",
+    color: "#3498db",
+  },
+
+  suplierPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  suplierDropdown: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 10,
+    marginTop: 5,
+    marginBottom: 10,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    overflow: "hidden",
+    maxHeight: 200,
+  },
+  suplierText: {
+    fontSize: 12,
+    color: "#7f8c8d",
+    fontStyle: "italic",
+    marginLeft: 5,
+  },
+
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  formLabelToggle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#34495e",
+  },
+  toggleBtn: {
+    width: 50,
+    height: 28,
+    borderRadius: 15,
+    padding: 3,
+    justifyContent: "center",
+  },
+  toggleActive: { backgroundColor: "#27ae60" },
+  toggleInactive: { backgroundColor: "#bdc3c7" },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "white",
+  },
+  knobActive: { transform: [{ translateX: 22 }] },
+  knobInactive: { transform: [{ translateX: 0 }] },
+
+  kadaluarsaContainer: {
+    backgroundColor: "#f0faf4",
+    borderRadius: 14,
+    marginTop: 12,
+    borderWidth: 1.2,
+    borderColor: "#b8e6cc",
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#27ae60",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  kadaluarsaHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#27ae60",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  kadaluarsaHeaderIcon: {
+    fontSize: 16,
+  },
+  kadaluarsaHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#ffffff",
+    letterSpacing: 0.3,
+  },
+  kadaluarsaFieldsRow: {
+    flexDirection: "row",
+    padding: 14,
+    gap: 10,
+  },
+  kadaluarsaField: {
+    flex: 1,
+  },
+  kadaluarsaFieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1e8449",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  kadaluarsaInput: {
+    height: 42,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: "#2c3e50",
+    borderWidth: 1,
+    borderColor: "#d5f0e0",
+  },
+  kadaluarsaDateBtn: {
+    height: 42,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#d5f0e0",
+  },
+  kadaluarsaDateIcon: {
+    fontSize: 15,
+  },
+  kadaluarsaDateText: {
+    fontSize: 13,
+    color: "#2c3e50",
+    fontWeight: "500",
+  },
+  badgeKadaluarsa: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  badgeKadaluarsaText: {
+    fontSize: 10,
+    color: "white",
+    fontWeight: "bold",
+  },
+
+  // Kalkulator HPP Styles
+  hppContainer: {
+    backgroundColor: "#f0f4fa",
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: "#cce0ff",
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#3498db",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  hppHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#3498db",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  hppHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#ffffff",
+    letterSpacing: 0.3,
+  },
+  hppFieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#2980b9",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  hppInput: {
+    height: 42,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: "#2c3e50",
+    borderWidth: 1,
+    borderColor: "#d5e6f0",
+  },
+});
