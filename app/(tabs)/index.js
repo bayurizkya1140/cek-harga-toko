@@ -488,6 +488,9 @@ export default function KasirScreen() {
             <Text style={s.pickerItemStok}>
               Stok: {item.stok} {item.satuan || "pcs"}
             </Text>
+            {item.lokasi ? (
+              <Text style={s.pickerItemLokasi}>📍 {item.lokasi}</Text>
+            ) : null}
             {inCart > 0 && (
               <View style={s.inCartBadge}>
                 <Text style={s.inCartBadgeText}>🛒 {inCart}</Text>
@@ -983,7 +986,11 @@ export default function KasirScreen() {
                     value={bayarInput}
                     onChangeText={(t) => {
                       const angkaMurni = t.replace(/\D/g, "");
-                      setBayarInput(formatRibuan(angkaMurni));
+                      if (!angkaMurni) {
+                        setBayarInput("");
+                      } else {
+                        setBayarInput(formatRibuan(parseInt(angkaMurni, 10).toString()));
+                      }
                     }}
                     placeholder="0"
                     placeholderTextColor="#bdc3c7"
@@ -1476,6 +1483,15 @@ const s = StyleSheet.create({
   pickerItemStok: {
     fontSize: 11,
     color: "#95a5a6",
+  },
+  pickerItemLokasi: {
+    fontSize: 10,
+    color: "#d35400",
+    backgroundColor: "#ffe0b2",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    fontWeight: "bold",
   },
   inCartBadge: {
     backgroundColor: "#ebf5fb",
