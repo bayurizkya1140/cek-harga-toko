@@ -649,7 +649,10 @@ export default function KasirScreen() {
         visible={pickerVisible}
         onRequestClose={() => setPickerVisible(false)}
       >
-        <View style={s.pickerOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={s.pickerOverlay}
+        >
           <View style={s.pickerContent}>
             {/* Header */}
             <View style={s.pickerHeader}>
@@ -700,7 +703,7 @@ export default function KasirScreen() {
               />
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ========== MODAL: QTY INPUT ========== */}
