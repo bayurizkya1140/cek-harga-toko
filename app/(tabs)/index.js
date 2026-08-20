@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
   Image,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -113,29 +112,9 @@ export default function KasirScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
 
-  // Keyboard height state untuk product picker
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
   // Ref
   const hasLoadedRef = useRef(false);
   const hasAutoSynced = useRef(false);
-
-  // Keyboard listener untuk product picker
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e) => setKeyboardHeight(e.endCoordinates.height);
-    const onHide = () => setKeyboardHeight(0);
-
-    const sub1 = Keyboard.addListener(showEvent, onShow);
-    const sub2 = Keyboard.addListener(hideEvent, onHide);
-
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, []);
 
   // Auto load saat fokus
   useFocusEffect(
@@ -669,9 +648,19 @@ export default function KasirScreen() {
         transparent={true}
         visible={pickerVisible}
         onRequestClose={() => setPickerVisible(false)}
+        statusBarTranslucent={true}
       >
-        <View style={s.pickerOverlay}>
-          <View style={[s.pickerContent, keyboardHeight > 0 && { maxHeight: screenHeight - keyboardHeight - 40 }]}>
+        <KeyboardAvoidingView
+          behavior="padding"
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          {/* Spacer: tap to dismiss, shrinks when keyboard appears */}
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setPickerVisible(false)}
+          />
+          <View style={s.pickerContent}>
             {/* Header */}
             <View style={s.pickerHeader}>
               <Text style={s.pickerTitle}>Pilih Barang</Text>
@@ -722,7 +711,7 @@ export default function KasirScreen() {
               />
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ========== MODAL: QTY INPUT ========== */}

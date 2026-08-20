@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -61,28 +60,8 @@ export default function PiutangScreen() {
   const [qtyInput, setQtyInput] = useState("1");
   const [qtyModalVisible, setQtyModalVisible] = useState(false);
 
-  // Keyboard height state untuk product picker
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
   // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
   const searchRef = useRef("");
-
-  // Keyboard listener untuk product picker
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e) => setKeyboardHeight(e.endCoordinates.height);
-    const onHide = () => setKeyboardHeight(0);
-
-    const sub1 = Keyboard.addListener(showEvent, onShow);
-    const sub2 = Keyboard.addListener(hideEvent, onHide);
-
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, []);
 
   // Auto load saat fokus ke tab ini
   useFocusEffect(
@@ -941,9 +920,19 @@ export default function PiutangScreen() {
         transparent={true}
         visible={productPickerVisible}
         onRequestClose={() => setProductPickerVisible(false)}
+        statusBarTranslucent={true}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: keyboardHeight > 0 ? screenHeight - keyboardHeight - 40 : screenHeight * 0.8 }]}>
+        <KeyboardAvoidingView
+          behavior="padding"
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)" }}
+        >
+          {/* Spacer: tap to dismiss, shrinks when keyboard appears */}
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setProductPickerVisible(false)}
+          />
+          <View style={[styles.modalContent, { maxHeight: screenHeight * 0.8 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pilih Produk dari Gudang</Text>
               <TouchableOpacity style={styles.btnClose} onPress={() => setProductPickerVisible(false)}>
@@ -976,7 +965,7 @@ export default function PiutangScreen() {
               keyboardShouldPersistTaps="handled"
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ========== MODAL: QTY INPUT ========== */}
