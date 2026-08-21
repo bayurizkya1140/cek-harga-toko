@@ -116,6 +116,9 @@ export default function KasirScreen() {
   const hasLoadedRef = useRef(false);
   const hasAutoSynced = useRef(false);
 
+  // Ref untuk menyimpan nilai search terbaru (menghindari stale closure di async handler)
+  const productSearchRef = useRef("");
+
   // Auto load saat fokus
   useFocusEffect(
     useCallback(() => {
@@ -144,7 +147,15 @@ export default function KasirScreen() {
       }
       const result = await getProducts(database);
       setAllProducts(result);
-      setFilteredProducts(result);
+      // Jika sedang ada pencarian, filter ulang (gunakan ref agar tidak stale)
+      if (productSearchRef.current) {
+        const filtered = result.filter((p) =>
+          p.nama.toUpperCase().includes(productSearchRef.current.toUpperCase())
+        );
+        setFilteredProducts(filtered);
+      } else {
+        setFilteredProducts(result);
+      }
       setLoading(false);
     } catch (e) {
       console.log("Kasir: Gagal load produk:", e);
@@ -174,9 +185,9 @@ export default function KasirScreen() {
         // Reload data setelah sync
         const freshData = await getProducts(database);
         setAllProducts(freshData);
-        if (productSearch) {
+        if (productSearchRef.current) {
           const filtered = freshData.filter((p) =>
-            p.nama.toUpperCase().includes(productSearch.toUpperCase())
+            p.nama.toUpperCase().includes(productSearchRef.current.toUpperCase())
           );
           setFilteredProducts(filtered);
         } else {
@@ -220,6 +231,7 @@ export default function KasirScreen() {
   // ======= PRODUCT PICKER =======
   const openPicker = async () => {
     setProductSearch("");
+    productSearchRef.current = "";
     // Reload products fresh setiap buka picker
     try {
       const database = await openDB();
@@ -236,6 +248,7 @@ export default function KasirScreen() {
 
   const handleProductSearch = (text) => {
     setProductSearch(text);
+    productSearchRef.current = text;
     if (text) {
       const filtered = allProducts.filter((p) =>
         p.nama.toUpperCase().includes(text.toUpperCase())
@@ -317,6 +330,7 @@ export default function KasirScreen() {
     setQtyModalVisible(false);
     setPickerVisible(false);
     setProductSearch("");
+    productSearchRef.current = "";
   };
 
   // ======= EDIT QTY (di keranjang) =======
